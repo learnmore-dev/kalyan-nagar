@@ -1,0 +1,18 @@
+export const DJANGO_API_URL =
+  typeof window !== 'undefined'
+    ? '/api'
+    : 'http://127.0.0.1:8000/api';
+
+export function getApiUrl(path: string): string {
+  let cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (cleanPath.startsWith('/api')) {
+    cleanPath = cleanPath.substring(4);
+  }
+
+  if (cleanPath && !cleanPath.endsWith('/')) {
+    cleanPath += '/';
+  }
+
+  return `${DJANGO_API_URL}${cleanPath}`;
+}

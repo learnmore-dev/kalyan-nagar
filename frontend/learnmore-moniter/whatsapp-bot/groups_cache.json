@@ -1,0 +1,800 @@
+[
+  {
+    "id": "120363431387642763@g.us",
+    "name": "Dildar Full Stack Cloud",
+    "size": 1,
+    "creation": 1789204190,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363430237775811@g.us",
+    "name": "Dildar",
+    "size": 2,
+    "creation": 1789198450,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412510465010@g.us",
+    "name": "Altaf personal",
+    "size": 2,
+    "creation": 1789953838,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363419494404881@g.us",
+    "name": "Airforce phase 2 gd preparation ",
+    "size": 2,
+    "creation": 1750782290,
+    "owner": "267611141066900@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427425490197@g.us",
+    "name": "Fast-learning-enquiry-portal",
+    "size": 3,
+    "creation": 1781945355,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429351177545@g.us",
+    "name": "team",
+    "size": 3,
+    "creation": 1784712503,
+    "owner": "53854662037545@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406479818998@g.us",
+    "name": "LMT-KN-OF-WD-NOV-PY-5PM",
+    "size": 3,
+    "creation": 1767417495,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429211788938@g.us",
+    "name": "LMT-KN-SEP-OFF-SQL-04PM",
+    "size": 3,
+    "creation": 1788863650,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406645242553@g.us",
+    "name": "LMT-KN-FEB-OF-WD-EXCEL-6PM",
+    "size": 3,
+    "creation": 1770955001,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363404900116361@g.us",
+    "name": "LMT-KN-DEC-OF-WD-PY-5PM",
+    "size": 3,
+    "creation": 1766404185,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363418653358580@g.us",
+    "name": "LMT-KN-APR-WD-OF-PY-12.30pm",
+    "size": 3,
+    "creation": 1745483013,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363423243578965@g.us",
+    "name": "LMT-KN-FEB-OF-WD-SQL-7PM",
+    "size": 3,
+    "creation": 1770385954,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429618870442@g.us",
+    "name": "AWS. Learn more technologies",
+    "size": 3,
+    "creation": 1780576922,
+    "owner": "279701356601389@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363424934587659@g.us",
+    "name": "LMT-M-APR-ON-WK-PY&SQL- 4PM",
+    "size": 3,
+    "creation": 1776085108,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429293844753@g.us",
+    "name": "LMT-KN-AUG-ON-WD-PY-4PM",
+    "size": 3,
+    "creation": 1785842005,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363405824700482@g.us",
+    "name": "LMT-KN-JAN-WD-OF-WEB-8PM",
+    "size": 4,
+    "creation": 1767599188,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426375866218@g.us",
+    "name": "LMT-KN-APR-WD-ON-NODE JS -9AM",
+    "size": 4,
+    "creation": 1776692033,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363413088573281@g.us",
+    "name": "LMT-KN-SEP-WD-OF-WEB-6PM",
+    "size": 4,
+    "creation": 1789647090,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363421646121191@g.us",
+    "name": "LMT-KN-OCT-OF-WD-PY-8.00PM",
+    "size": 4,
+    "creation": 1762181912,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363428778861921@g.us",
+    "name": "LMT-KN-JULY-ON-WE-PY-2PM",
+    "size": 4,
+    "creation": 1785053089,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363428703373991@g.us",
+    "name": "LMT-M-Mar-WND-ON-PY-10am",
+    "size": 4,
+    "creation": 1773845687,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363430551040882@g.us",
+    "name": "LMT-KN-SEP-WD-ON-PY- 5PM",
+    "size": 4,
+    "creation": 1788588703,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363405934461664@g.us",
+    "name": "LMT-KN-FEB-OF-WE-PY-12AM",
+    "size": 4,
+    "creation": 1770521132,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427835282907@g.us",
+    "name": "LMT-M-JUL-ON-WD-PY-3PM",
+    "size": 4,
+    "creation": 1784791690,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363409983738503@g.us",
+    "name": "Geetesh (Python Full stack , Data Analytics)",
+    "size": 4,
+    "creation": 1783434614,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363403925322835@g.us",
+    "name": "LMT PY 9.30AM WD 22DEC",
+    "size": 4,
+    "creation": 1766370066,
+    "isGroup": true
+  },
+  {
+    "id": "120363420889191923@g.us",
+    "name": "LMT-KN-OCT-OF-WD-PY-4PM",
+    "size": 4,
+    "creation": 1760091292,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427239805877@g.us",
+    "name": "LMT-KN-APR-OFF-WEB-7PM",
+    "size": 4,
+    "creation": 1776056577,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422286169805@g.us",
+    "name": "LMT-KN-DEC-OF-WD-PY-2PM",
+    "size": 4,
+    "creation": 1764828119,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426511811775@g.us",
+    "name": "Nammafreshmeat",
+    "size": 4,
+    "creation": 1775202791,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406219952278@g.us",
+    "name": "Anubhav Sir(Python,DS,AI,Genai)",
+    "size": 4,
+    "creation": 1780669434,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429394865421@g.us",
+    "name": "LMT-M-SEP-OF-WD-EXCEL-8PM",
+    "size": 4,
+    "creation": 1789739795,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363407405302256@g.us",
+    "name": "LMT-M-MAY-ON-WD-REACTINTPREP-9AM",
+    "size": 4,
+    "creation": 1780063477,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429834007994@g.us",
+    "name": "LMT-KN-JULY-WE-ON-PY-2.00PM",
+    "size": 4,
+    "creation": 1785557162,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363425612010064@g.us",
+    "name": "Sharemarket project group",
+    "size": 4,
+    "creation": 1771504320,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363405077061898@g.us",
+    "name": "LMT-KN-JAN-OF-WD-BC-10AM",
+    "size": 4,
+    "creation": 1768210217,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363409028862724@g.us",
+    "name": "LMT-KN-APR-OF-WEB-12PM",
+    "size": 5,
+    "creation": 1775990720,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363402871149187@g.us",
+    "name": "Altaf sir(web development, python,reactjs)",
+    "size": 5,
+    "creation": 1760598087,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363408748014312@g.us",
+    "name": "LMT-M-MAY-ON-WD-GENAI-10AM",
+    "size": 5,
+    "creation": 1780758403,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363413499398798@g.us",
+    "name": "LMT-M-SEP-ON-WD-FE-6PM",
+    "size": 5,
+    "creation": 1789739718,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363425020140772@g.us",
+    "name": "LMT-M-FEB-ON-WD-AWS-7.30PM",
+    "size": 5,
+    "creation": 1770557804,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363403252659257@g.us",
+    "name": "Food gallery restaurant",
+    "size": 5,
+    "creation": 1759560396,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412732274410@g.us",
+    "name": "LMT-KN-AUG-OF-WE-PY-2PM",
+    "size": 5,
+    "creation": 1787807511,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422761947829@g.us",
+    "name": "LMT-KN-SEP-WD-WEB-11AM",
+    "size": 5,
+    "creation": 1758503443,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406890665571@g.us",
+    "name": "PrateekSir(Python,SQL,FrontEnd)",
+    "size": 5,
+    "creation": 1775564869,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426456206282@g.us",
+    "name": "LMT-KN-FEB-OF-WE-PY-4PM",
+    "size": 5,
+    "creation": 1771665614,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426610663046@g.us",
+    "name": "Nath-seva-app-deployment",
+    "size": 5,
+    "creation": 1778837547,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426178732144@g.us",
+    "name": "LMT-KN-MAY-OF-WD-PY-4PM",
+    "size": 5,
+    "creation": 1778137089,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422333995870@g.us",
+    "name": "LMT-DEC-MT-ON-7PM",
+    "size": 5,
+    "creation": 1765973434,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406080778776@g.us",
+    "name": "LMT-KN-JAN-OF-WD-SQL-4PM",
+    "size": 5,
+    "creation": 1769512932,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363424968527472@g.us",
+    "name": "Berozgaar log🫡",
+    "size": 5,
+    "creation": 1781104675,
+    "owner": "246522700669129@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363407924951729@g.us",
+    "name": "LMT-KN-FEB-OF-WE-SQL-10AM",
+    "size": 5,
+    "creation": 1771052119,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363409885241208@g.us",
+    "name": "LMT-KN-JULY-WD-OF-PY-8AM",
+    "size": 5,
+    "creation": 1784257865,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406805705203@g.us",
+    "name": "LMT-KN-MAY-WE-OF-PY-2PM",
+    "size": 5,
+    "creation": 1778926426,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363411850483501@g.us",
+    "name": "LMT-KN-JULY-ON-WD-PY-7PM",
+    "size": 5,
+    "creation": 1783512505,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363404668506594@g.us",
+    "name": "LMT-KN-OCT-WD-OF-PY-2PM",
+    "size": 5,
+    "creation": 1761635323,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363409637443972@g.us",
+    "name": "Kalyannagar  synup meeting -10.30am",
+    "size": 6,
+    "creation": 1785829418,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426738439474@g.us",
+    "name": "LMT-KN-FEB-WD-OF-PY-10AM",
+    "size": 6,
+    "creation": 1771560841,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363421285735627@g.us",
+    "name": "Bhavana (Python Full Stack)",
+    "size": 6,
+    "creation": 1763032029,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363421612806032@g.us",
+    "name": "NEXTGEN2AI-DEV-TEAM",
+    "size": 6,
+    "creation": 1760598351,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429224572704@g.us",
+    "name": "LMT-KN-SEP-OF-WD-PY-4PM",
+    "size": 6,
+    "creation": 1789386036,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422772200024@g.us",
+    "name": "LMT-KN-OF-NOV-WD-REACTJS-12.30PM",
+    "size": 6,
+    "creation": 1763460648,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363425128333787@g.us",
+    "name": "Jeevansir(Java,Springboot, fronten)",
+    "size": 6,
+    "creation": 1775564234,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422861838271@g.us",
+    "name": "LMT-KN-OF-WD-JAN-DJANGO-12PM",
+    "size": 6,
+    "creation": 1767589192,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363405158612474@g.us",
+    "name": "LMT-KN-OF-WD-JAN-SQL-4pm",
+    "size": 6,
+    "creation": 1767675579,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422820397198@g.us",
+    "name": "Adnan Sir(Aws Devops)",
+    "size": 6,
+    "creation": 1765520216,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363411757918721@g.us",
+    "name": "LMT-KN-JUL-WE-OF-PY-10AM",
+    "size": 6,
+    "creation": 1784356980,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363423881360978@g.us",
+    "name": "LMT-KN-APR-WD-ON-PY-10AM",
+    "size": 6,
+    "creation": 1775621283,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426278370563@g.us",
+    "name": "KN-DAILY-OFFICE-LOCK-UPDATE",
+    "size": 6,
+    "creation": 1773649069,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363400549082694@g.us",
+    "name": "LMT-KN-OF-JUNE-WD-WEB-3PM",
+    "size": 6,
+    "creation": 1749009529,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363408872620579@g.us",
+    "name": "LMT-M-JULY-WD-ON-AWS- 10 AM",
+    "size": 6,
+    "creation": 1783745209,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363423378256513@g.us",
+    "name": "LMT-KN-JAN-OF-WD-EXCEL-11AM",
+    "size": 7,
+    "creation": 1768974634,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429490602857@g.us",
+    "name": "LMT-KN-JULY-OF-WD-PY-11AM",
+    "size": 7,
+    "creation": 1784699393,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427309537340@g.us",
+    "name": "HandyGo",
+    "size": 7,
+    "creation": 1780690549,
+    "owner": "5051150008492@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427739066025@g.us",
+    "name": "LMT-KN-JUNE-ON-WD-REACT JS-9AM",
+    "size": 7,
+    "creation": 1781666326,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363424427335149@g.us",
+    "name": "LMT-M-FEB-ON-WD-PY-5PM",
+    "size": 7,
+    "creation": 1770047268,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363410617018011@g.us",
+    "name": "LMT-B-JULY-WD-OF-Statistics-5PM",
+    "size": 7,
+    "creation": 1783400971,
+    "owner": "102405358272707@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363427028260963@g.us",
+    "name": "LMT-M-JUN-ON-WD-SQL-10am",
+    "size": 8,
+    "creation": 1781602319,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363410094921891@g.us",
+    "name": "LMT-KN-APR-WD-OF-PY-11AM",
+    "size": 8,
+    "creation": 1777439462,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363405130653856@g.us",
+    "name": "LMT-KN-OF-JAN-WD-PY-9AM",
+    "size": 8,
+    "creation": 1769603518,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363408030503634@g.us",
+    "name": "LMT-KN-APR-WD-ON-STATS-11AM",
+    "size": 8,
+    "creation": 1776054672,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363428563776119@g.us",
+    "name": "LMT-KN-AUG-WD-OF-SQL-8AM",
+    "size": 8,
+    "creation": 1788086769,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363401676306782@g.us",
+    "name": "Event-Plan@Learnmore",
+    "size": 9,
+    "creation": 1750664807,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363431601133893@g.us",
+    "name": "LMT-B-APR-WD-ON-SQL-5PM",
+    "size": 9,
+    "creation": 1777458212,
+    "owner": "102405358272707@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426439084369@g.us",
+    "name": "Hackathon 09/08/2026",
+    "size": 9,
+    "creation": 1786184665,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363409244715985@g.us",
+    "name": "LMT-KN-AUG-OF-WD-PY-10AM",
+    "size": 9,
+    "creation": 1787806714,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363411600186523@g.us",
+    "name": "LMT-KN-SEP-OF-WE-SQL-10AM",
+    "size": 9,
+    "creation": 1788665537,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363428235975147@g.us",
+    "name": "LMT-KN-jun- ai ml internship  batch- 11am",
+    "size": 9,
+    "creation": 1780459962,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363426912241198@g.us",
+    "name": "LMT-KN-MAY-OF-WD-PY-8AM",
+    "size": 11,
+    "creation": 1779243911,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363428233310280@g.us",
+    "name": "LMT-KN-ON-AUG-WD-STATS-6PM",
+    "size": 11,
+    "creation": 1785829983,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363420544090982@g.us",
+    "name": "LMT-KN-JULY-OF-SQL-4PM",
+    "size": 12,
+    "creation": 1752467012,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363419879828009@g.us",
+    "name": "Meet",
+    "size": 13,
+    "creation": 1754211191,
+    "owner": "225133729984763@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363406263179172@g.us",
+    "name": "LMT-DEV-TEAM",
+    "size": 13,
+    "creation": 1764083938,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363410679800243@g.us",
+    "name": "Hackthon 09/08/26",
+    "size": 21,
+    "creation": 1786250358,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363231853245188@g.us",
+    "name": "LEARNMORE-Login-Logout",
+    "size": 24,
+    "creation": 1707197011,
+    "owner": "238241986904087@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363422750306567@g.us",
+    "name": "LMT-SF-PYTHON-2027-BATCH",
+    "size": 24,
+    "creation": 1762267132,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363420896224315@g.us",
+    "name": "Python project session 28 sep - 2.30pm",
+    "size": 27,
+    "creation": 1758982236,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363397799544054@g.us",
+    "name": "10th New Batch  2027",
+    "size": 49,
+    "creation": 1742024214,
+    "owner": "263358888546519@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363104094922985@g.us",
+    "name": "Learn More - Placement group ",
+    "size": 253,
+    "creation": 1679565430,
+    "isGroup": true
+  },
+  {
+    "id": "120363401662200926@g.us",
+    "name": "Airforce 01/2026 Phase-2 Preparation (2) 📢",
+    "size": 391,
+    "creation": 1743053943,
+    "owner": "97152311259242@lid",
+    "isGroup": true
+  }
+]
