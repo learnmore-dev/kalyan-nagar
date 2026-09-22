@@ -19,11 +19,11 @@ import {
 } from 'lucide-react';
 
 const TRAINER_PREFETCH_MAP: Record<string, string[]> = {
-  '/trainer/dashboard':    ['/api/batches', '/api/leaves', '/api/sessions'],
-  '/trainer/demos':        ['/api/batches'],
-  '/trainer/batches':      ['/api/batches'],
+  '/trainer/dashboard':    ['/api/batches/', '/api/leaves', '/api/sessions'],
+  '/trainer/demos':        ['/api/batches/'],
+  '/trainer/batches':      ['/api/batches/'],
   '/trainer/attendance':   ['/api/attendance/'],
-  '/trainer/sessions/add': ['/api/batches', '/api/courses'],
+  '/trainer/sessions/add': ['/api/batches/', '/api/courses'],
   '/trainer/tasks':        ['/api/tasks', '/api/syllabus'],
   '/trainer/leaves':       ['/api/leaves'],
 };

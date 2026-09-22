@@ -28,7 +28,7 @@ export default function AdminReportsPage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/users?role=trainer').then((r) => r.json()),
-      fetch('/api/batches').then((r) => r.json())
+      fetch('/api/batches/').then((r) => r.json())
     ]).then(([uData, bData]) => {
       if (uData.success && uData.users) setTrainers(uData.users);
       if (bData.success && bData.batches) setBatches(bData.batches);

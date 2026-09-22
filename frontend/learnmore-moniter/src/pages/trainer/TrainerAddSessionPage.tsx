@@ -58,7 +58,7 @@ export default function TrainerAddSessionPage() {
 
     const fetchBatches = async () => {
       try {
-        const res = await fetch(`/api/batches?trainer_id=${u?.id || ''}`);
+        const res = await fetch(`/api/batches/?trainer_id=${u?.id || ''}`);
         const data = await res.json();
         if (data.success) {
           const myBatches = (data.batches || []).filter(

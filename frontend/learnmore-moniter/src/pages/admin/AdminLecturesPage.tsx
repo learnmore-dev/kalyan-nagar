@@ -24,7 +24,7 @@ export default function AdminLecturesPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/batches').then((r) => r.json()).catch(() => ({ success: false })),
+      fetch('/api/batches/').then((r) => r.json()).catch(() => ({ success: false })),
       fetch('/api/sessions').then((r) => r.json()).catch(() => ({ success: false })),
     ]).then(([bData, sData]) => {
       if (bData.success) setBatches(bData.batches || []);

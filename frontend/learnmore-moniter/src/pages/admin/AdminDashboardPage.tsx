@@ -66,7 +66,7 @@ export default function AdminDashboardPage() {
     try {
       const [actRes, batRes, leaveRes, sesRes, monRes, covRes] = await Promise.all([
         fetch('/api/live-activity'),
-        fetch('/api/batches'),
+        fetch('/api/batches/'),
         fetch('/api/leaves'),
         fetch('/api/sessions'),
         fetch('/api/monitoring/snapshot'),

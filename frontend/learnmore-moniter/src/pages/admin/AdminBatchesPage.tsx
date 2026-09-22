@@ -50,7 +50,7 @@ export default function AdminBatchesPage() {
   const fetchBatchesAndTrainers = async () => {
     try {
       const [bRes, tRes] = await Promise.all([
-        fetch('/api/batches'),
+        fetch('/api/batches/'),
         fetch('/api/users?role=trainer')
       ]);
       const bData = await bRes.json();

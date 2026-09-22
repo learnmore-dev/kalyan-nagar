@@ -16,7 +16,7 @@ export default function TrainerBatchDetailPage() {
     const fetchBatchData = async () => {
       try {
         const [bRes, sRes] = await Promise.all([
-          fetch(`/api/batches`),
+          fetch(`/api/batches/`),
           fetch(`/api/sessions?batch_id=${batchId}`),
         ]);
 

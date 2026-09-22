@@ -91,7 +91,7 @@ export default function AdminCreateBatchPage() {
         }
       });
 
-    fetch('/api/syllabus')
+    fetch('/api/courses/')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && data.courses?.length > 0) {
@@ -201,7 +201,7 @@ export default function AdminCreateBatchPage() {
     try {
       const validStudents = studentList.filter((s) => s.name && s.name.trim().length > 0);
 
-      const res = await fetch('/api/batches', {
+      const res = await fetch('/api/batches/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

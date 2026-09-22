@@ -26,7 +26,7 @@ export default function AdminTrainersPage() {
   const fetchData = () => {
     Promise.all([
       fetch('/api/users?role=trainer').then((r) => r.json()).catch(() => ({ success: false })),
-      fetch('/api/batches').then((r) => r.json()).catch(() => ({ success: false })),
+      fetch('/api/batches/').then((r) => r.json()).catch(() => ({ success: false })),
     ]).then(([uData, bData]) => {
       if (uData && uData.success && uData.users) {
         setTrainers(uData.users);

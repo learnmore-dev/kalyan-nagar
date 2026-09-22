@@ -70,7 +70,7 @@ export default function TrainerDashboardPage() {
         const todayStr = new Date().toISOString().split('T')[0];
 
         const [bRes, sRes, mRes, aRes, allAttRes] = await Promise.all([
-          fetch(`/api/batches?trainer_id=${u.id}`).catch(() => null),
+          fetch(`/api/batches/?trainer_id=${u.id}`).catch(() => null),
           fetch('/api/sessions').catch(() => null),
           fetch(url).catch(() => null),
           fetch(`/api/attendance/?trainer_id=${u.id}&date=${todayStr}`).catch(() => null),

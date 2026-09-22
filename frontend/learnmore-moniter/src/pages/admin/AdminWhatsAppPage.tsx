@@ -42,7 +42,7 @@ export default function AdminWhatsAppPage() {
       if (showLoader) setLoading(true);
       const [botRes, batchRes] = await Promise.all([
         fetch('/api/whatsapp/bot'),
-        fetch('/api/batches'),
+        fetch('/api/batches/'),
       ]);
       const botData = await botRes.json();
       const batchData = await batchRes.json();

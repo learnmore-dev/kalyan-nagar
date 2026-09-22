@@ -15,7 +15,7 @@ export default function TrainerLiveClassPage() {
       setUserName(user.name);
     }
 
-    fetch(`/api/batches`)
+    fetch(`/api/batches/`)
       .then((r) => r.json())
       .then((data) => {
         if (data.success && data.batches) {

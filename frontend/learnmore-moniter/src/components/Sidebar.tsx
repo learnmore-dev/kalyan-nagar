@@ -23,10 +23,10 @@ import {
 } from 'lucide-react';
 
 const PREFETCH_MAP: Record<string, string[]> = {
-  '/admin/dashboard':   ['/api/batches', '/api/leaves', '/api/sessions', '/api/live-activity'],
+  '/admin/dashboard':   ['/api/batches/', '/api/leaves', '/api/sessions', '/api/live-activity'],
   '/admin/courses':     ['/api/courses', '/api/syllabus'],
-  '/admin/batches':     ['/api/batches', '/api/courses', '/api/users?role=trainer'],
-  '/admin/lectures':    ['/api/batches'],
+  '/admin/batches':     ['/api/batches/', '/api/courses', '/api/users?role=trainer'],
+  '/admin/lectures':    ['/api/batches/'],
   '/admin/trainers':    ['/api/users?role=trainer'],
   '/admin/attendance':  ['/api/attendance/', '/api/users?role=trainer'],
   '/admin/monitoring':  ['/api/monitoring/snapshot'],
