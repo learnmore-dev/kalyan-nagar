@@ -12,6 +12,7 @@ from .views import (
     LiveActivityViewSet,
     HolidayViewSet,
     WhatsAppGroupViewSet,
+    auth_login_view,
     whatsapp_bot_gateway,
     reports_summary_view,
     monitoring_summary_view,
@@ -34,8 +35,8 @@ router.register(r'holidays', HolidayViewSet, basename='holiday')
 router.register(r'whatsapp-groups', WhatsAppGroupViewSet, basename='whatsapp-group')
 
 urlpatterns = [
-    path('auth/login/', UserProfileViewSet.as_view({'post': 'login'}), name='auth-login'),
-    path('auth/login', UserProfileViewSet.as_view({'post': 'login'}), name='auth-login-noslash'),
+    path('auth/login/', auth_login_view, name='auth-login'),
+    path('auth/login', auth_login_view, name='auth-login-noslash'),
     path('whatsapp/bot', whatsapp_bot_gateway, name='whatsapp-bot-gateway'),
     path('whatsapp/bot/', whatsapp_bot_gateway, name='whatsapp-bot-gateway-slash'),
     path('reports', reports_summary_view, name='reports-summary'),

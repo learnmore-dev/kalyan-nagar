@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { formatTimeSafely } from '@/lib/whatsappService';
 import {
   User,
   Batch,
@@ -186,7 +187,7 @@ export default function AdminTrainerDetailPage() {
   };
 
   const presentDays = monthlyAttendances.filter(
-    (a) => (a.day_status === 'present' || (!a.day_status && a.mark_in_time)) && !isLateRecord(a)
+    (a) => a.mark_in_time && a.mark_out_time && (a.total_work_minutes || 0) >= 540 && !isLateRecord(a)
   ).length;
   const lateDays = monthlyAttendances.filter((a) => isLateRecord(a)).length;
   const halfDays = monthlyAttendances.filter((a) => a.day_status === 'half_day').length;
@@ -620,35 +621,42 @@ export default function AdminTrainerDetailPage() {
                       });
                       const dayOfWeek = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
 
-                      const inFormatted = rec.mark_in_time
-                        ? new Date(rec.mark_in_time).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true,
-                          })
-                        : '—';
+                      const inFormatted = formatTimeSafely(rec.mark_in_time);
+                      const outFormatted = formatTimeSafely(rec.mark_out_time);
 
-                      const outFormatted = rec.mark_out_time
-                        ? new Date(rec.mark_out_time).toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true,
-                          })
-                        : '—';
+                      const parseToMins = (str?: string | null) => {
+                        if (!str) return null;
+                        const s = str.trim();
+                        const d = new Date(s);
+                        if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
+                        if (s.includes(':')) {
+                          const parts = s.split(':');
+                          const h = parseInt(parts[0], 10);
+                          const m = parseInt(parts[1], 10);
+                          if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+                        }
+                        return null;
+                      };
 
                       let shiftDurationStr = '—';
-                      if (rec.mark_in_time && rec.mark_out_time) {
-                        const diffMins = Math.max(
-                          0,
-                          Math.floor(
-                            (new Date(rec.mark_out_time).getTime() - new Date(rec.mark_in_time).getTime()) / 60000
-                          )
-                        );
-                        const h = Math.floor(diffMins / 60);
-                        const m = diffMins % 60;
-                        shiftDurationStr = `${h}h ${m}m`;
-                      } else if (rec.mark_in_time) {
-                        shiftDurationStr = 'Active Shift';
+                      const inMins = parseToMins(rec.mark_in_time);
+                      if (inMins !== null) {
+                        const outMins = parseToMins(rec.mark_out_time);
+                        if (outMins !== null) {
+                          let diff = outMins - inMins;
+                          if (diff < 0) diff += 24 * 60;
+                          const h = Math.floor(diff / 60);
+                          const m = diff % 60;
+                          shiftDurationStr = `${h}h ${m}m`;
+                        } else {
+                          const now = new Date();
+                          const currentMins = now.getHours() * 60 + now.getMinutes();
+                          let elapsed = currentMins - inMins;
+                          if (elapsed < 0) elapsed += 24 * 60;
+                          const h = Math.floor(elapsed / 60);
+                          const m = elapsed % 60;
+                          shiftDurationStr = `⚡ Active (${h}h ${m}m)`;
+                        }
                       }
 
                       const isLate = isLateRecord(rec);
@@ -706,7 +714,11 @@ export default function AdminTrainerDetailPage() {
                           </td>
 
                           <td className="py-3.5 px-4 text-center">
-                            {rec.day_status === 'leave' ? (
+                            {rec.mark_in_time && !rec.mark_out_time ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                                ⏳ Pending
+                              </span>
+                            ) : rec.day_status === 'leave' ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800">
                                 🟠 On Leave
                               </span>

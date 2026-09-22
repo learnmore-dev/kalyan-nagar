@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatTimeSafely } from '@/lib/whatsappService';
 import { TrainerAttendance, User } from '@/lib/types';
 import { Calendar, CheckCircle2, Clock, MapPin, ExternalLink, XCircle, AlertCircle, Users } from 'lucide-react';
 
@@ -54,13 +55,53 @@ export default function AdminAttendancePage() {
     const selfie     = (att as any)?.selfie_in_url || (att as any)?.photo_in || null;
     const lat        = (att as any)?.latitude_in  || (att as any)?.latitude  || null;
     const lng        = (att as any)?.longitude_in || (att as any)?.longitude || null;
-    const workMins   = att?.total_work_minutes || 0;
+    let workMins = att?.total_work_minutes || 0;
+    if (!workMins && inTime) {
+      const parseToMins = (str?: string | null) => {
+        if (!str) return null;
+        const s = str.trim();
+        const d = new Date(s);
+        if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
+        if (s.includes(':')) {
+          const parts = s.split(':');
+          let h = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          if (s.toLowerCase().includes('pm') && h < 12) h += 12;
+          if (s.toLowerCase().includes('am') && h === 12) h = 0;
+          if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+        }
+        return null;
+      };
 
-    let status: 'present' | 'half_day' | 'leave_approved' | 'leave_pending' | 'absent';
+      const inM = parseToMins(inTime);
+      if (inM !== null) {
+        const outM = outTime ? parseToMins(outTime) : null;
+        let diff = 0;
+        if (outM !== null) {
+          diff = outM - inM;
+        } else {
+          const now = new Date();
+          const currentMins = now.getHours() * 60 + now.getMinutes();
+          diff = currentMins - inM;
+        }
+        if (diff < 0) diff += 24 * 60;
+        workMins = diff;
+      }
+    }
 
-    if (checkedIn) {
+    let status: 'present' | 'half_day' | 'leave_approved' | 'leave_pending' | 'absent' | 'pending';
+
+    if (checkedIn && !checkedOut) {
+      status = 'pending';
+    } else if (checkedIn && checkedOut) {
       const ds = (att?.day_status || '').toLowerCase();
-      status = ds === 'half_day' ? 'half_day' : 'present';
+      if (ds === 'half_day' || (workMins >= 300 && workMins < 540)) {
+        status = 'half_day';
+      } else if (ds === 'leave' || workMins < 300) {
+        status = 'absent';
+      } else {
+        status = 'present';
+      }
     } else if (leave) {
       status = leave.status === 'approved' ? 'leave_approved' : 'leave_pending';
     } else {
@@ -71,13 +112,14 @@ export default function AdminAttendancePage() {
   });
 
   /* ── Summary counts ─────────────────────── */
-  const presentCount  = rows.filter((r) => r.status === 'present' || r.status === 'half_day').length;
+  const presentCount  = rows.filter((r) => r.status === 'present').length;
   const leaveCount    = rows.filter((r) => r.status === 'leave_approved' || r.status === 'leave_pending').length;
   const absentCount   = rows.filter((r) => r.status === 'absent').length;
-  const total         = rows.length;
+  const total         = trainers.length;
 
-  const statusConfig = {
+  const statusConfig: Record<string, { label: string; bg: string; color: string; border: string; dot: string }> = {
     present:       { label: 'PRESENT',        bg: '#ecfdf5', color: '#065f46', border: '#a7f3d0', dot: '#059669' },
+    pending:       { label: 'PENDING',        bg: '#fffbeb', color: '#92400e', border: '#fcd34d', dot: '#d97706' },
     half_day:      { label: 'HALF DAY',       bg: '#fffbeb', color: '#92400e', border: '#fcd34d', dot: '#d97706' },
     leave_approved:{ label: 'ON LEAVE',       bg: '#f5f3ff', color: '#5b21b6', border: '#ddd6fe', dot: '#7c3aed' },
     leave_pending: { label: 'LEAVE (PENDING)',bg: '#fff7ed', color: '#9a3412', border: '#fed7aa', dot: '#ea580c' },
@@ -86,9 +128,7 @@ export default function AdminAttendancePage() {
 
   const fmtTime = (t: string | null) => {
     if (!t) return '—';
-    try {
-      return new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-    } catch { return t; }
+    return formatTimeSafely(t);
   };
 
   const fmtDuration = (mins: number) => {
@@ -265,7 +305,9 @@ export default function AdminAttendancePage() {
                       {/* Check Out */}
                       <td className="font-mono font-semibold text-slate-600 text-xs">
                         {row.checkedOut ? fmtTime(row.outTime) : row.checkedIn ? (
-                          <span className="text-blue-500 font-semibold">Still In</span>
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 rounded font-bold text-xs inline-flex items-center gap-1">
+                            ⏳ Pending
+                          </span>
                         ) : '—'}
                       </td>
 

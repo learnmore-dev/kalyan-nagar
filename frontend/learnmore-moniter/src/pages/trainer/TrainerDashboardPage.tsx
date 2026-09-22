@@ -123,14 +123,15 @@ export default function TrainerDashboardPage() {
   const totalLifetimeStudents    = batches.reduce((acc, b) => acc + (b.total_students || 0), 0);
 
   const currentMonthAtts   = attendances.filter((a) => (a.date || '').startsWith(currentMonthStr));
-  const presentDays        = currentMonthAtts.filter((a) => a.day_status === 'present').length;
+  const presentDays        = currentMonthAtts.filter((a) => a.mark_in_time && a.mark_out_time && (a.total_work_minutes || 0) >= 540).length;
+  const pendingDays        = currentMonthAtts.filter((a) => a.mark_in_time && !a.mark_out_time).length;
   const halfDays           = currentMonthAtts.filter((a) => a.day_status === 'half_day').length;
   const estWorkingDays     = 24;
   const effectivePresentDays = presentDays + halfDays * 0.5;
   const attendancePct      = Math.min(100, Math.round(((effectivePresentDays / estWorkingDays) * 100) * 10) / 10);
   const isAttQualified     = attendancePct >= 86.66;
 
-  let dailyTeachingHours = currentlyTakingBatches.length > 0 ? Math.max(currentlyTakingBatches.length * 2, 6) : 6;
+  let dailyTeachingHours = currentlyTakingBatches.length > 0 ? currentlyTakingBatches.length * 2 : 0;
   if (user?.name?.toLowerCase().includes('rahul') || user?.username === 'rahul') dailyTeachingHours = 7;
   else if (user?.name?.toLowerCase().includes('priya') || user?.username === 'priya') dailyTeachingHours = 6;
 

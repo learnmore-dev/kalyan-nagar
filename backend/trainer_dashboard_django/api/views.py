@@ -5,6 +5,8 @@ from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from django.db.models import Q
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from .models import (
     UserProfile,
     Course,
@@ -50,13 +52,15 @@ ATTENDANCE_GROUP_ID = '120363231853245188@g.us'
 def send_attendance_whatsapp(message):
     """
     Send trainer attendance notification through the local Baileys gateway.
-    WhatsApp failure must never break attendance recording.
+    Uses selected attendance group from AttendanceGroupConfig if available.
     """
     try:
+        cfg = AttendanceGroupConfig.objects.first()
+        target = cfg.group_id if (cfg and cfg.group_id) else ATTENDANCE_GROUP_ID
         response = requests.post(
             f"{BAILEYS_URL}/send-message",
             json={
-                'target': ATTENDANCE_GROUP_ID,
+                'target': target,
                 'text': message,
             },
             timeout=10,
@@ -65,22 +69,32 @@ def send_attendance_whatsapp(message):
         if response.ok:
             result = response.json()
             if result.get('success'):
-                print(f"[ATTENDANCE WHATSAPP] Sent successfully: {message}")
+                try:
+                    print(f"[ATTENDANCE WHATSAPP] Sent to {target} successfully.")
+                except Exception:
+                    pass
                 return True
 
-            print(f"[ATTENDANCE WHATSAPP] Baileys returned failure: {result}")
+            try:
+                print(f"[ATTENDANCE WHATSAPP] Baileys returned failure: {result}")
+            except Exception:
+                pass
         else:
-            print(
-                f"[ATTENDANCE WHATSAPP] HTTP {response.status_code}: "
-                f"{response.text[:500]}"
-            )
+            try:
+                print(f"[ATTENDANCE WHATSAPP] HTTP {response.status_code}: {response.text[:500]}")
+            except Exception:
+                pass
 
     except Exception as e:
-        print(f"[ATTENDANCE WHATSAPP] Error: {e}")
+        try:
+            print(f"[ATTENDANCE WHATSAPP] Error: {e}")
+        except Exception:
+            pass
 
     return False
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all().order_by('-created_at')
     serializer_class = UserProfileSerializer
@@ -96,6 +110,16 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'users': serializer.data})
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            errors = serializer.errors
+            err_msg = next(iter(errors.values()))[0] if errors else 'Invalid user data'
+            return Response({'success': False, 'error': str(err_msg)}, status=status.HTTP_400_BAD_REQUEST)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response({'success': True, 'user': serializer.data, 'message': 'User created successfully.'}, status=status.HTTP_201_CREATED, headers=headers)
 
     def destroy(self, request, *args, **kwargs):
         trainer_id = kwargs.get('pk') or request.query_params.get('id')
@@ -113,37 +137,80 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='login')
     def login(self, request):
-        username = str(request.data.get('username') or request.data.get('email') or '').strip()
-        password = str(request.data.get('password') or '').strip()
+        return auth_login_view(request)
 
-        if not username:
-            return Response({'success': False, 'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Match by exact username, email, or full name
-        user = UserProfile.objects.filter(
-            Q(username__iexact=username) | Q(email__iexact=username) | Q(name__iexact=username)
-        ).first()
+@api_view(['POST'])
+@csrf_exempt
+def auth_login_view(request):
+    username = str(request.data.get('username') or request.data.get('email') or '').strip()
+    password = str(request.data.get('password') or '').strip()
 
-        # Fallback: substring match if not found directly
-        if not user:
-            user = UserProfile.objects.filter(
-                Q(username__icontains=username) | Q(name__icontains=username)
-            ).first()
+    if not username:
+        return Response({'success': False, 'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user:
-            is_valid_pw = False
-            if not user.password:
-                is_valid_pw = True
-            elif user.password.strip() == password:
-                is_valid_pw = True
-            elif user.password.strip() == 'trainer' or user.password.strip() == 'admin' or user.password.strip() == '12345' or user.password.strip() == '123':
-                is_valid_pw = True
+    from django.contrib.auth import authenticate
+    from django.contrib.auth.models import User
 
-            if is_valid_pw:
-                serializer = self.get_serializer(user)
-                return Response({'success': True, 'user': serializer.data, 'message': 'Login successful'})
-        
-        return Response({'success': False, 'error': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
+    # 1. Try Django auth_user standard authentication
+    django_user = authenticate(username=username, password=password)
+    if not django_user:
+        u_obj = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+        if u_obj and u_obj.check_password(password):
+            django_user = u_obj
+
+    if django_user:
+        role = 'admin' if (django_user.is_staff or django_user.is_superuser) else 'trainer'
+        profile = UserProfile.objects.filter(username=django_user.username).first()
+        if not profile:
+            profile = UserProfile.objects.create(
+                id=f"usr_{django_user.username}",
+                username=django_user.username,
+                name=django_user.get_full_name() or django_user.username,
+                email=django_user.email or f"{django_user.username}@institute.edu",
+                role=role,
+                password=password,
+                designation='Director / Management' if role == 'admin' else 'Faculty Trainer'
+            )
+        else:
+            profile.role = role
+            if password:
+                profile.password = password
+            profile.save()
+
+        serializer = UserProfileSerializer(profile)
+        return Response({'success': True, 'user': serializer.data, 'message': 'Login successful'})
+
+    # 2. Try UserProfile database lookup
+    user = UserProfile.objects.filter(
+        Q(username__iexact=username) | Q(email__iexact=username) | Q(name__iexact=username)
+    ).first()
+
+    if user:
+        is_valid_pw = False
+        if not user.password:
+            is_valid_pw = True
+        elif user.password.strip() == password:
+            is_valid_pw = True
+        elif password and (password == user.password.strip() or (not user.password and password in ['trainer', 'admin'])):
+            is_valid_pw = True
+
+        if is_valid_pw:
+            # Keep Django auth_user in sync so Django Admin works too
+            auth_u, _ = User.objects.get_or_create(username=user.username, defaults={
+                'email': user.email or '',
+                'first_name': user.name,
+                'is_staff': (user.role == 'admin'),
+                'is_superuser': (user.role == 'admin'),
+            })
+            if password:
+                auth_u.set_password(password)
+                auth_u.save()
+
+            serializer = UserProfileSerializer(user)
+            return Response({'success': True, 'user': serializer.data, 'message': 'Login successful'})
+
+    return Response({'success': False, 'error': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class CourseViewSet(viewsets.ModelViewSet):
@@ -168,6 +235,88 @@ class BatchViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'batches': serializer.data})
 
+    def create(self, request, *args, **kwargs):
+        students_raw = request.data.get('students', [])
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        
+        self.perform_create(serializer)
+        batch = serializer.instance
+
+        # Save student records linked to this batch
+        saved_students = []
+        if isinstance(students_raw, list):
+            for st in students_raw:
+                if isinstance(st, dict):
+                    s_name = st.get('name', '').strip()
+                    s_phone = st.get('phone', '').strip()
+                    s_email = st.get('email', '').strip()
+                else:
+                    s_name = str(st).strip()
+                    s_phone = ''
+                    s_email = ''
+
+                if s_name:
+                    stud = Student.objects.create(
+                        batch=batch,
+                        batch_name=batch.name,
+                        name=s_name,
+                        phone=s_phone,
+                        email=s_email
+                    )
+                    saved_students.append({'id': str(stud.id), 'name': stud.name, 'phone': stud.phone})
+
+        # Trigger WhatsApp Group creation via Baileys API
+        whatsapp_info = None
+        auto_whatsapp = request.data.get('auto_whatsapp_group', True)
+        if auto_whatsapp:
+            participants = []
+            if batch.trainer and batch.trainer.phone:
+                participants.append(batch.trainer.phone)
+            for st in saved_students:
+                if st.get('phone'):
+                    participants.append(st['phone'])
+            for st in (students_raw if isinstance(students_raw, list) else []):
+                if isinstance(st, dict) and st.get('phone'):
+                    ph = st['phone'].strip()
+                    if ph and ph not in participants:
+                        participants.append(ph)
+
+            group_name = batch.whatsapp_group_name or batch.name
+            try:
+                import requests
+                for b_url in ['http://127.0.0.1:5002', 'http://localhost:5002']:
+                    try:
+                        r = requests.post(
+                            f"{b_url}/create-group",
+                            json={'name': group_name, 'participants': participants},
+                            timeout=5
+                        )
+                        if r.ok:
+                            resp = r.json()
+                            if resp.get('success'):
+                                g_id = resp.get('groupId')
+                                invite_link = resp.get('inviteLink', '')
+                                batch.whatsapp_group_id = g_id
+                                batch.whatsapp_group_link = invite_link
+                                batch.save()
+                                whatsapp_info = {'groupId': g_id, 'inviteLink': invite_link, 'name': group_name}
+                                break
+                    except Exception as req_err:
+                        print("Failed to reach Baileys server at", b_url, req_err)
+            except Exception as e:
+                print("WhatsApp Group creation exception:", e)
+
+        serializer_out = self.get_serializer(batch)
+        return Response({
+            'success': True,
+            'batch': serializer_out.data,
+            'whatsapp': whatsapp_info,
+            'students_count': len(saved_students),
+            'message': f'Batch "{batch.name}" created successfully'
+        }, status=status.HTTP_201_CREATED)
+
     def partial_update(self, request, *args, **kwargs):
         """PATCH /api/batches/{id}/ — update batch fields"""
         batch = self.get_object()
@@ -181,10 +330,27 @@ class BatchViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         """DELETE /api/batches/{id}/"""
-        batch = self.get_object()
+        pk = kwargs.get('pk')
+        import urllib.parse
+        clean_pk = urllib.parse.unquote(str(pk))
+        
+        batch = Batch.objects.filter(id=clean_pk).first() or Batch.objects.filter(name=clean_pk).first()
+        if not batch and pk:
+            batch = Batch.objects.filter(id=pk).first() or Batch.objects.filter(name=pk).first()
+
+        if not batch:
+            return Response({'success': False, 'error': f'Batch "{clean_pk}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
         batch_name = batch.name
-        batch.delete()
-        return Response({'success': True, 'message': f'Batch "{batch_name}" deleted.'})
+        try:
+            WorkSession.objects.filter(batch=batch).delete()
+            Student.objects.filter(batch=batch).delete()
+            if batch.whatsapp_group_id:
+                WhatsAppGroup.objects.filter(id=batch.whatsapp_group_id).delete()
+            batch.delete()
+            return Response({'success': True, 'message': f'Batch "{batch_name}" deleted successfully.'})
+        except Exception as e:
+            return Response({'success': False, 'error': f'Failed to delete batch: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['get'], url_path='sessions')
     def sessions(self, request, pk=None):
@@ -356,7 +522,7 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
                 'location_name': request.data.get('location_name', 'Campus'),
                 'latitude': str(request.data.get('latitude', '') or ''),
                 'longitude': str(request.data.get('longitude', '') or ''),
-                'day_status': 'present',
+                'day_status': 'pending',
             }
         )
         if not created:
@@ -368,16 +534,23 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
                 attendance.location_name = request.data.get('location_name')
             attendance.save()
 
+        now_dt = timezone.localtime(timezone.now())
+        formatted_date = now_dt.strftime('%d %b %Y')
+        formatted_in_time = now_dt.strftime('%I:%M %p')
+        loc_name = request.data.get('location_name', 'Live GPS Location')
+
         serializer = self.get_serializer(attendance)
 
-        # Notify WhatsApp group after successful Check-In
+        desig_str = f" ({trainer.designation})" if trainer.designation else " (Faculty Trainer)"
+        phone_str = trainer.phone or '+91 9876543210'
+
+        # Send clean plain text Check-In alert (no emojis or symbols)
         send_attendance_whatsapp(
-            f"🟢 TRAINER CHECK-IN\n"
-            f"👤 Trainer: {attendance.trainer_name}\n"
-            f"🆔 Trainer ID: {attendance.trainer_id}\n"
-            f"📅 Date: {attendance.date}\n"
-            f"⏰ Check-In: {attendance.mark_in_time}\n"
-            f"📍 Location: {attendance.location_name or 'Campus'}"
+            f"Trainer Name: {trainer.name}{desig_str}\n"
+            f"WhatsApp: {phone_str}\n"
+            f"Login Time: {formatted_in_time}\n"
+            f"Date: {formatted_date}\n"
+            f"Location: {attendance.location_name or loc_name}"
         )
 
         return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-In recorded successfully'})
@@ -389,8 +562,12 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
         if not trainer_id:
             return Response({'success': False, 'error': 'trainer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
-        now_time = timezone.localtime(timezone.now()).strftime('%H:%M:%S')
+        trainer = UserProfile.objects.filter(id=trainer_id).first() or UserProfile.objects.filter(username=trainer_id).first()
+        now_dt = timezone.localtime(timezone.now())
+        today_str = now_dt.strftime('%Y-%m-%d')
+        now_time = now_dt.strftime('%H:%M:%S')
+        formatted_date = now_dt.strftime('%d %b %Y')
+        formatted_out_time = now_dt.strftime('%I:%M %p')
         photo_val = request.data.get('photo') or request.data.get('selfie_url') or ''
 
         attendance = TrainerAttendance.objects.filter(trainer_id=trainer_id, date=today_str).first()
@@ -401,9 +578,12 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
             attendance.mark_out_time = now_time
             if photo_val:
                 attendance.photo_out = photo_val
+
+            formatted_in_time = ''
             if attendance.mark_in_time:
                 try:
                     t1 = datetime.strptime(str(attendance.mark_in_time)[:8], '%H:%M:%S')
+                    formatted_in_time = t1.strftime('%I:%M %p')
                     t2 = datetime.strptime(str(now_time)[:8], '%H:%M:%S')
                     diff_sec = (t2 - t1).total_seconds()
                     if diff_sec > 0:
@@ -421,7 +601,25 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
                     attendance.day_status = 'present'
             else:
                 attendance.day_status = 'present'
+
             attendance.save()
+
+            trainer_obj = trainer or attendance.trainer
+            t_name = trainer_obj.name if trainer_obj else attendance.trainer_name
+            t_desig = f" ({trainer_obj.designation})" if (trainer_obj and trainer_obj.designation) else " (Faculty Trainer)"
+            t_phone = trainer_obj.phone if (trainer_obj and trainer_obj.phone) else '+91 9876543210'
+
+            # Send clean plain text Check-Out alert (no emojis or symbols)
+            send_attendance_whatsapp(
+                f"Trainer Name: {t_name}{t_desig}\n"
+                f"WhatsApp: {t_phone}\n"
+                f"Login Time: {formatted_in_time or attendance.mark_in_time}\n"
+                f"Logout Time: {formatted_out_time}\n"
+                f"Date: {formatted_date}\n"
+                f"Working Hours: {attendance.working_duration or '0h 0m'}\n"
+                f"Location: {attendance.location_name or 'Campus'}"
+            )
+
             serializer = self.get_serializer(attendance)
             return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-Out recorded successfully'})
         

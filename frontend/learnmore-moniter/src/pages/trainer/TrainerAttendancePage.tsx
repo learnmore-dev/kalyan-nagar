@@ -141,27 +141,90 @@ export default function TrainerAttendancePage() {
     return mins > 615; // 10:15 AM
   };
 
+  const getRecordDayStatus = (rec: TrainerAttendance) => {
+    if (!rec.mark_in_time) {
+      if (rec.day_status === 'leave') return 'leave';
+      if (rec.day_status === 'weekoff') return 'weekoff';
+      if (rec.day_status === 'holiday') return 'holiday';
+      return 'absent';
+    }
+    if (!rec.mark_out_time) {
+      return 'pending';
+    }
+    const parseMins = (tStr?: string | null) => {
+      if (!tStr) return null;
+      const s = String(tStr).trim();
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
+      if (s.includes(':')) {
+        const parts = s.split(':');
+        let h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (s.toLowerCase().includes('pm') && h < 12) h += 12;
+        if (s.toLowerCase().includes('am') && h === 12) h = 0;
+        if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+      }
+      return null;
+    };
+
+    let mins = rec.total_work_minutes || 0;
+    if (!mins && rec.mark_in_time && rec.mark_out_time) {
+      const inM = parseMins(rec.mark_in_time);
+      const outM = parseMins(rec.mark_out_time);
+      if (inM !== null && outM !== null) {
+        mins = outM - inM;
+        if (mins < 0) mins += 24 * 60;
+      }
+    }
+
+    if (mins < 300) return 'leave';
+    if (mins < 540) return 'half_day';
+    return 'present';
+  };
+
+  const pendingDays = monthlyList.filter((a) => getRecordDayStatus(a) === 'pending').length;
   const presentDays = monthlyList.filter(
-    (a) => (a.day_status === 'present' || (!a.day_status && a.mark_in_time)) && !isLateRecord(a)
+    (a) => getRecordDayStatus(a) === 'present' && !isLateRecord(a)
   ).length;
 
   const lateDays = monthlyList.filter((a) => isLateRecord(a)).length;
-  const halfDays = monthlyList.filter((a) => a.day_status === 'half_day').length;
-  const leaveDays = monthlyList.filter((a) => a.day_status === 'leave').length;
+  const halfDays = monthlyList.filter((a) => getRecordDayStatus(a) === 'half_day').length;
+  const leaveDays = monthlyList.filter((a) => getRecordDayStatus(a) === 'leave').length;
   const absentDays = monthlyList.filter(
-    (a) => a.day_status === 'absent' || (!a.mark_in_time && a.day_status !== 'leave' && a.day_status !== 'weekoff' && a.day_status !== 'holiday')
+    (a) => getRecordDayStatus(a) === 'absent'
   ).length;
 
   let totalMinutesMonth = 0;
   monthlyList.forEach((a) => {
-    if (a.mark_in_time && a.mark_out_time) {
-      const diff = new Date(a.mark_out_time).getTime() - new Date(a.mark_in_time).getTime();
-      totalMinutesMonth += Math.max(0, Math.floor(diff / 60000));
+    const parseMins = (tStr?: string | null) => {
+      if (!tStr) return null;
+      const s = String(tStr).trim();
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
+      if (s.includes(':')) {
+        const parts = s.split(':');
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+      }
+      return null;
+    };
+
+    if (a.total_work_minutes && !isNaN(Number(a.total_work_minutes))) {
+      totalMinutesMonth += Number(a.total_work_minutes);
+    } else if (a.mark_in_time && a.mark_out_time) {
+      const inM = parseMins(a.mark_in_time);
+      const outM = parseMins(a.mark_out_time);
+      if (inM !== null && outM !== null) {
+        let diff = outM - inM;
+        if (diff < 0) diff += 24 * 60;
+        totalMinutesMonth += diff;
+      }
     } else if (a.mark_in_time) {
       totalMinutesMonth += a.day_status === 'half_day' ? 240 : 480;
     }
   });
-  const totalHoursMonth = (totalMinutesMonth / 60).toFixed(1);
+  const totalHoursMonth = isNaN(totalMinutesMonth) ? '0.0' : (totalMinutesMonth / 60).toFixed(1);
 
   const handlePrevMonth = () => {
     const [y, m] = selectedMonth.split('-').map(Number);
@@ -385,12 +448,19 @@ export default function TrainerAttendancePage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 p-4 sm:p-5 bg-white border-b border-slate-100">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 p-4 sm:p-5 bg-white border-b border-slate-100">
             <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-1">
               <div className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider">
                 🟢 Present
               </div>
               <div className="text-xl font-black text-emerald-950 font-mono">{presentDays} Days</div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-1">
+              <div className="text-[10px] font-extrabold text-amber-900 uppercase tracking-wider">
+                ⏳ Pending
+              </div>
+              <div className="text-xl font-black text-amber-950 font-mono">{pendingDays} Days</div>
             </div>
 
             <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-1">
@@ -432,20 +502,20 @@ export default function TrainerAttendancePage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50/60 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-extrabold">
-                  <th className="py-3.5 px-4">Date</th>
-                  <th className="py-3.5 px-4">Login Time</th>
-                  <th className="py-3.5 px-4">Logout Time</th>
-                  <th className="py-3.5 px-4">Working Shift</th>
-                  <th className="py-3.5 px-4">Location / Lab</th>
-                  <th className="py-3.5 px-4">Selfie</th>
-                  <th className="py-3.5 px-4 text-center">Status</th>
+                <tr className="bg-[#fafcff] text-slate-400 font-extrabold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                  <th className="py-4 px-4">DATE</th>
+                  <th className="py-4 px-4">MARK IN</th>
+                  <th className="py-4 px-4">MARK OUT</th>
+                  <th className="py-4 px-4">DURATION</th>
+                  <th className="py-4 px-4">LOCATION</th>
+                  <th className="py-4 px-4">SELFIE</th>
+                  <th className="py-4 px-4 text-center">STATUS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {monthlyList.length === 0 ? (
+                {paginatedList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-10 text-slate-400 font-medium">
+                    <td colSpan={7} className="text-center py-12 text-slate-400 font-bold">
                       No attendance records found for {monthDisplayLabel}.
                     </td>
                   </tr>
@@ -459,35 +529,39 @@ export default function TrainerAttendancePage() {
                     });
                     const dayOfWeek = rowDate.toLocaleDateString('en-US', { weekday: 'short' });
 
-                    const inFormatted = rec.mark_in_time
-                      ? new Date(rec.mark_in_time).toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true,
-                        })
-                      : '—';
+                    const inFormatted = formatTimeSafely(rec.mark_in_time);
+                    const outFormatted = formatTimeSafely(rec.mark_out_time);
 
-                    const outFormatted = rec.mark_out_time
-                      ? new Date(rec.mark_out_time).toLocaleTimeString('en-US', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: true,
-                        })
-                      : '—';
+                    const parseToMins = (str?: string | null) => {
+                      if (!str) return null;
+                      const s = str.trim();
+                      const d = new Date(s);
+                      if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
+                      if (s.includes(':')) {
+                        const parts = s.split(':');
+                        const h = parseInt(parts[0], 10);
+                        const m = parseInt(parts[1], 10);
+                        if (!isNaN(h) && !isNaN(m)) return h * 60 + m;
+                      }
+                      return null;
+                    };
 
                     let shiftDurationStr = '—';
-                    if (rec.mark_in_time && rec.mark_out_time) {
-                      const diffMins = Math.max(
-                        0,
-                        Math.floor(
-                          (new Date(rec.mark_out_time).getTime() - new Date(rec.mark_in_time).getTime()) / 60000
-                        )
-                      );
-                      const h = Math.floor(diffMins / 60);
-                      const m = diffMins % 60;
+                    const inMins = parseToMins(rec.mark_in_time);
+                    if (inMins !== null) {
+                      const outMins = parseToMins(rec.mark_out_time);
+                      let diff = 0;
+                      if (outMins !== null) {
+                        diff = outMins - inMins;
+                      } else {
+                        const now = new Date();
+                        const currentMins = now.getHours() * 60 + now.getMinutes();
+                        diff = currentMins - inMins;
+                      }
+                      if (diff < 0) diff += 24 * 60;
+                      const h = Math.floor(diff / 60);
+                      const m = diff % 60;
                       shiftDurationStr = `${h}h ${m}m`;
-                    } else if (rec.mark_in_time) {
-                      shiftDurationStr = 'Active Shift';
                     }
 
                     let isLate = false;
@@ -518,6 +592,10 @@ export default function TrainerAttendancePage() {
                           {outFormatted !== '—' ? (
                             <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-md">
                               🚪 {outFormatted}
+                            </span>
+                          ) : rec.mark_in_time ? (
+                            <span className="px-2 py-0.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-md font-extrabold text-xs inline-flex items-center gap-1">
+                              ⏳ Pending
                             </span>
                           ) : (
                             <span className="text-slate-400 font-mono">—</span>
@@ -550,15 +628,19 @@ export default function TrainerAttendancePage() {
                         </td>
 
                         <td className="py-3.5 px-4 text-center">
-                          {rec.day_status === 'leave' ? (
+                          {getRecordDayStatus(rec) === 'pending' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                              ⏳ Pending
+                            </span>
+                          ) : getRecordDayStatus(rec) === 'leave' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800">
                               🟠 On Leave
                             </span>
-                          ) : rec.day_status === 'half_day' ? (
+                          ) : getRecordDayStatus(rec) === 'half_day' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
                               🌓 Half Day Leave
                             </span>
-                          ) : rec.day_status === 'absent' || (!rec.mark_in_time && rec.day_status !== 'weekoff' && rec.day_status !== 'holiday') ? (
+                          ) : getRecordDayStatus(rec) === 'absent' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">
                               🔴 Absent
                             </span>

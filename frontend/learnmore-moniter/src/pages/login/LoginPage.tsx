@@ -34,7 +34,8 @@ export default function LoginPage() {
       try { data = await response.json(); } catch { data = null; }
 
       if (!response.ok || !data?.success) {
-        setError(data?.error?.message || data?.message || 'Invalid username or password.');
+        const errMsg = typeof data?.error === 'string' ? data.error : (data?.error?.message || data?.message || 'Invalid username or password.');
+        setError(errMsg);
         return;
       }
       if (!data?.user) {

@@ -33,13 +33,13 @@ export default function AdminCreateUserPage() {
     const fullName = `${firstName} ${lastName}`.trim() || username;
 
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch('/api/users/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username,
+          username: username.trim(),
           name: fullName,
-          email: email || `${username}@institute.edu`,
+          email: email.trim() || `${username.trim()}@institute.edu`,
           phone: phone.trim(),
           role,
           password,
@@ -49,31 +49,15 @@ export default function AdminCreateUserPage() {
 
       let data: any = null;
       try {
-        const text = await res.text();
-        data = JSON.parse(text);
+        data = await res.json();
       } catch {
         data = null;
       }
 
-      const localNewUser = {
-        id: `usr_${Date.now()}`,
-        username,
-        name: fullName,
-        email: email || `${username}@institute.edu`,
-        phone: phone.trim(),
-        role,
-        designation: role === 'admin' ? 'Institute Admin' : 'Faculty Trainer',
-        hourly_rate: 500,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
-        created_at: new Date().toISOString(),
-      };
-
-      try {
-        const savedUsers = JSON.parse(localStorage.getItem('custom_users') || '[]');
-        savedUsers.push(localNewUser);
-        localStorage.setItem('custom_users', JSON.stringify(savedUsers));
-      } catch (e) {
-        console.warn('LocalStorage save skipped:', e);
+      if (!res.ok || (data && data.success === false)) {
+        setError(data?.error || 'Failed to create user in database. Username might already exist.');
+        setLoading(false);
+        return;
       }
 
       setSuccess(true);
@@ -81,28 +65,8 @@ export default function AdminCreateUserPage() {
         navigate('/admin/trainers');
       }, 800);
     } catch (err: any) {
-      const localNewUser = {
-        id: `usr_${Date.now()}`,
-        username,
-        name: fullName,
-        email: email || `${username}@institute.edu`,
-        phone: phone.trim(),
-        role,
-        designation: role === 'admin' ? 'Institute Admin' : 'Faculty Trainer',
-        hourly_rate: 500,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
-        created_at: new Date().toISOString(),
-      };
-      try {
-        const savedUsers = JSON.parse(localStorage.getItem('custom_users') || '[]');
-        savedUsers.push(localNewUser);
-        localStorage.setItem('custom_users', JSON.stringify(savedUsers));
-      } catch {}
-
-      setSuccess(true);
-      setTimeout(() => {
-        navigate('/admin/trainers');
-      }, 800);
+      setError(err?.message || 'Failed to connect to backend database server.');
+      setLoading(false);
     }
   };
 

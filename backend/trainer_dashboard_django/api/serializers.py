@@ -39,6 +39,7 @@ class BatchSerializer(serializers.ModelSerializer):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
         if 'trainer_id' in data and not data.get('trainer'):
             data['trainer'] = data['trainer_id']
+        data.pop('students', None)
         return super().to_internal_value(data)
 
     def create(self, validated_data):

@@ -136,6 +136,34 @@ class TrainerAttendance(models.Model):
     total_work_minutes = models.IntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
 
+    def save(self, *args, **kwargs):
+        if self.mark_in_time and self.mark_out_time:
+            try:
+                def parse_mins(t_str):
+                    if not t_str: return None
+                    s = str(t_str).strip()
+                    if ':' in s:
+                        parts = s.split(':')
+                        return int(parts[0]) * 60 + int(parts[1])
+                    return None
+
+                in_m = parse_mins(self.mark_in_time)
+                out_m = parse_mins(self.mark_out_time)
+                if in_m is not None and out_m is not None:
+                    diff = out_m - in_m
+                    if diff < 0:
+                        diff += 24 * 60
+                    self.total_work_minutes = diff
+                    h = diff // 60
+                    m = diff % 60
+                    self.working_duration = f"{h}h {m}m"
+            except Exception:
+                pass
+        elif self.mark_in_time and not self.mark_out_time:
+            if not self.working_duration:
+                self.working_duration = "Active Shift"
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.trainer_name} - {self.date} ({self.day_status})"
 

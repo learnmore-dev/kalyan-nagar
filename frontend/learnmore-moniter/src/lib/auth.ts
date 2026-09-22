@@ -6,7 +6,9 @@ export function getStoredUser(): User | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      return JSON.parse(raw);
+    }
 
     // Fallback: parse cookie if available
     const match = document.cookie.match(new RegExp('(^| )trainer_user=([^;]+)'));
@@ -27,19 +29,7 @@ export function getStoredUser(): User | null {
     // silent
   }
 
-  // Default auto-login fallback as admin so admin dashboard opens directly
-  const defaultAdminUser: User = {
-    id: 'usr_admin',
-    username: 'admin',
-    name: 'Institute Director (Admin)',
-    email: 'admin@institute.edu',
-    role: 'admin',
-    phone: '+91 98765 43210',
-    designation: 'Director / Management',
-    created_at: new Date().toISOString(),
-  };
-  setStoredUser(defaultAdminUser);
-  return defaultAdminUser;
+  return null;
 }
 
 export function setStoredUser(user: User): void {

@@ -274,7 +274,7 @@ export default function TrainerTasksPage() {
     },
   ];
 
-  const allDisplayTasks = [...tasks, ...defaultTasks.filter((d) => !tasks.some((t) => t.id === d.id))];
+  const allDisplayTasks = tasks;
 
   // Filtering
   const filteredTasks = allDisplayTasks.filter((task) => {

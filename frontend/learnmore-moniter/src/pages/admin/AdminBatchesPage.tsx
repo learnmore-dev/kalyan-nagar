@@ -56,22 +56,7 @@ export default function AdminBatchesPage() {
       const bData = await bRes.json();
       const tData = await tRes.json();
       if (bData.success) setBatches(bData.batches || []);
-
-      let list: User[] = [];
-      if (tData.success && tData.users) {
-        list = tData.users;
-      }
-      try {
-        const customUsers = JSON.parse(localStorage.getItem('custom_users') || '[]');
-        const customTrainers = customUsers.filter((u: any) => u.role === 'trainer');
-        customTrainers.forEach((cu: any) => {
-          if (!list.some((existing) => existing.id === cu.id || existing.username === cu.username)) {
-            list.push(cu);
-          }
-        });
-      } catch {}
-
-      setTrainers(list);
+      if (tData.success && tData.users) setTrainers(tData.users || []);
     } catch {
       // silent
     }
@@ -120,12 +105,12 @@ export default function AdminBatchesPage() {
   const handleDeleteBatch = async (batchId: string, batchName: string) => {
     if (!window.confirm(`Delete batch "${batchName}"? This cannot be undone.`)) return;
     try {
-      const res = await fetch(`/api/batches/${batchId}/`, { method: 'DELETE' });
+      const res = await fetch(`/api/batches/${encodeURIComponent(batchId)}/`, { method: 'DELETE' });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success !== false) {
         fetchBatchesAndTrainers();
       } else {
-        alert(data.error || 'Failed to delete batch');
+        alert(data.error || data.message || 'Failed to delete batch');
       }
     } catch { alert('Error deleting batch'); }
   };

@@ -15,11 +15,6 @@ export default function AdminTrainersPage() {
     if (!window.confirm(`Are you sure you want to delete trainer "${trainerName}"?`)) return;
     try {
       await fetch(`/api/users/${trainerId}/`, { method: 'DELETE' });
-      try {
-        const customUsers = JSON.parse(localStorage.getItem('custom_users') || '[]');
-        const updated = customUsers.filter((u: any) => u.id !== trainerId);
-        localStorage.setItem('custom_users', JSON.stringify(updated));
-      } catch {}
       setNotice(`🗑️ Trainer "${trainerName}" deleted successfully.`);
       fetchData();
       setTimeout(() => setNotice(null), 3000);
@@ -33,21 +28,12 @@ export default function AdminTrainersPage() {
       fetch('/api/users?role=trainer').then((r) => r.json()).catch(() => ({ success: false })),
       fetch('/api/batches').then((r) => r.json()).catch(() => ({ success: false })),
     ]).then(([uData, bData]) => {
-      let list: User[] = [];
       if (uData && uData.success && uData.users) {
-        list = uData.users;
+        setTrainers(uData.users);
       }
-      try {
-        const customUsers = JSON.parse(localStorage.getItem('custom_users') || '[]');
-        const customTrainers = customUsers.filter((u: any) => u.role === 'trainer');
-        customTrainers.forEach((cu: any) => {
-          if (!list.some((existing) => existing.id === cu.id || existing.username === cu.username)) {
-            list.push(cu);
-          }
-        });
-      } catch {}
-      setTrainers(list);
-      if (bData && bData.success && bData.batches) setBatches(bData.batches);
+      if (bData && bData.success && bData.batches) {
+        setBatches(bData.batches);
+      }
     });
   };
 

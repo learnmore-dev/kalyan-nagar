@@ -133,9 +133,25 @@ class WhatsAppService {
   };
 
   private attendanceGroup = {
-    id: '120363231853245188@g.us',
-    name: 'LEARNMORE-Login-Logout',
+    id: '',
+    name: '',
   };
+
+  public async syncAttendanceGroupWithServer() {
+    try {
+      const res = await fetch('/api/whatsapp/bot');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.bot?.attendanceGroup?.id) {
+          this.attendanceGroup = {
+            id: data.bot.attendanceGroup.id,
+            name: data.bot.attendanceGroup.name || 'Attendance Group',
+          };
+        }
+      }
+    } catch {}
+    return this.attendanceGroup;
+  }
 
   public getStatus(): WhatsAppBotState {
     this.botState.lastSyncAt = new Date().toISOString();
@@ -154,7 +170,8 @@ class WhatsAppService {
     return this.botState;
   }
 
-  public getAttendanceGroup() {
+  public async getAttendanceGroup() {
+    await this.syncAttendanceGroupWithServer();
     return this.attendanceGroup;
   }
 
@@ -381,17 +398,19 @@ class WhatsAppService {
     latitude?: string | number | null;
     longitude?: string | number | null;
   }): Promise<{ success: boolean; messageText: string }> {
+    await this.syncAttendanceGroupWithServer();
     const { trainer, checkInTime } = params;
 
     const formattedTime = formatTimeSafely(checkInTime);
     const formattedDate = formatDateSafely(checkInTime);
 
+    const desig = trainer.designation ? ` (${trainer.designation})` : '';
     const checkInMessage = [
-      `👨‍🏫 Trainer Name: ${trainer.name}`,
-      `📱 WhatsApp: ${trainer.phone || '+91 9876543210'}`,
-      `⏰ Login Time: ${formattedTime}`,
-      `📅 Date: ${formattedDate}`,
-      params.locationName ? `📍 Location: ${params.locationName}` : null,
+      `Trainer Name: ${trainer.name}${desig}`,
+      `WhatsApp: ${trainer.phone || '+91 9876543210'}`,
+      `Login Time: ${formattedTime}`,
+      `Date: ${formattedDate}`,
+      params.locationName ? `Location: ${params.locationName}` : null,
     ].filter(Boolean).join('\n');
 
     let sent = false;
@@ -423,19 +442,25 @@ class WhatsAppService {
     latitude?: string | number | null;
     longitude?: string | number | null;
   }): Promise<{ success: boolean; messageText: string; isCompleted9h: boolean }> {
+    await this.syncAttendanceGroupWithServer();
     const { trainer, checkInTime, checkOutTime, totalMinutesWorked } = params;
 
     const inTimeFormatted = formatTimeSafely(checkInTime);
     const outTimeFormatted = formatTimeSafely(checkOutTime);
     const formattedDate = formatDateSafely(checkOutTime);
+    const desig = trainer.designation ? ` (${trainer.designation})` : '';
+
+    const h = Math.floor(totalMinutesWorked / 60);
+    const m = totalMinutesWorked % 60;
 
     const checkOutMessage = [
-      `👨‍🏫 Trainer Name: ${trainer.name}`,
-      `📱 WhatsApp: ${trainer.phone || '+91 9876543210'}`,
-      `⏰ Login Time: ${inTimeFormatted}`,
-      `🚪 Logout Time: ${outTimeFormatted}`,
-      `📅 Date: ${formattedDate}`,
-      params.locationName ? `📍 Location: ${params.locationName}` : null,
+      `Trainer Name: ${trainer.name}${desig}`,
+      `WhatsApp: ${trainer.phone || '+91 9876543210'}`,
+      `Login Time: ${inTimeFormatted}`,
+      `Logout Time: ${outTimeFormatted}`,
+      `Date: ${formattedDate}`,
+      `Working Hours: ${h}h ${m}m`,
+      params.locationName ? `Location: ${params.locationName}` : null,
     ].filter(Boolean).join('\n');
 
     let sent = false;

@@ -67,6 +67,7 @@ export default function AdminReportsPage() {
     const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
     const daysList = [];
     let presentCount = 0;
+    let pendingCount = 0;
     let halfDayCount = 0;
     let leaveCount = 0;
     let absentCount = 0;
@@ -101,71 +102,75 @@ export default function AdminReportsPage() {
         const outTime = attRecord.mark_out_time || (attRecord as any).check_out_time;
 
         const markInStr = formatTimeSafely(inTime);
-        const markOutStr = outTime ? formatTimeSafely(outTime) : 'Still In';
 
-        let durMinutes = attRecord.total_work_minutes || 0;
-        if (!durMinutes && inTime && outTime) {
-          const d1 = new Date(`2000-01-01T${inTime}`);
-          const d2 = new Date(`2000-01-01T${outTime}`);
-          if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
-            durMinutes = Math.max(0, Math.floor((d2.getTime() - d1.getTime()) / 60000));
-          }
-        }
-
-        const h = Math.floor(durMinutes / 60);
-        const m = durMinutes % 60;
-        const durStr = durMinutes > 0 ? `${h}h ${m}m` : (outTime ? 'Completed' : 'Active');
-
-        totalMinutes += durMinutes;
-
-        let rawStatus = (attRecord.day_status || '').toLowerCase();
-        if (outTime) {
-          if (durMinutes < 300) {
-            rawStatus = 'leave';
-          } else if (durMinutes < 540) {
-            rawStatus = 'half_day';
-          } else {
-            rawStatus = 'present';
-          }
-        }
-
-        if (rawStatus === 'leave') {
-          leaveCount++;
+        if (!outTime) {
+          // Mark Out is missing => Status is Pending, NOT Present!
+          pendingCount++;
           daysList.push({
             date: dateFormatted,
             day: dayOfWeek,
-            status: 'leave',
-            leaveStatus: 'approved',
+            status: 'pending',
             markIn: markInStr,
-            markOut: markOutStr,
-            duration: durStr,
-            durationMinutes: durMinutes,
-            loc: attRecord.location_name ? `${attRecord.location_name} (Short Duty <5h)` : 'Short Duty < 5h',
-          });
-        } else if (rawStatus === 'half_day') {
-          halfDayCount++;
-          daysList.push({
-            date: dateFormatted,
-            day: dayOfWeek,
-            status: 'half_day',
-            markIn: markInStr,
-            markOut: markOutStr,
-            duration: durStr,
-            durationMinutes: durMinutes,
-            loc: attRecord.location_name || 'Institute Lab',
+            markOut: 'Pending',
+            duration: '--',
+            durationMinutes: 0,
+            loc: attRecord.location_name || 'Live GPS Location',
           });
         } else {
-          presentCount++;
-          daysList.push({
-            date: dateFormatted,
-            day: dayOfWeek,
-            status: 'present',
-            markIn: markInStr,
-            markOut: markOutStr,
-            duration: durStr,
-            durationMinutes: durMinutes,
-            loc: attRecord.location_name || 'Institute Lab',
-          });
+          // Mark Out is present => Calculate work duration and status
+          const markOutStr = formatTimeSafely(outTime);
+          let durMinutes = attRecord.total_work_minutes || 0;
+          if (!durMinutes && inTime && outTime) {
+            const d1 = new Date(`2000-01-01T${inTime}`);
+            const d2 = new Date(`2000-01-01T${outTime}`);
+            if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
+              durMinutes = Math.max(0, Math.floor((d2.getTime() - d1.getTime()) / 60000));
+            }
+          }
+
+          const h = Math.floor(durMinutes / 60);
+          const m = durMinutes % 60;
+          const durStr = `${h}h ${m}m`;
+          totalMinutes += durMinutes;
+
+          if (durMinutes < 300) { // < 5 hours => Leave
+            leaveCount++;
+            daysList.push({
+              date: dateFormatted,
+              day: dayOfWeek,
+              status: 'leave',
+              leaveStatus: 'approved',
+              markIn: markInStr,
+              markOut: markOutStr,
+              duration: durStr,
+              durationMinutes: durMinutes,
+              loc: attRecord.location_name ? `${attRecord.location_name} (Short Duty <5h)` : 'Short Duty < 5h',
+            });
+          } else if (durMinutes < 540) { // 5 to 9 hours => Half Day
+            halfDayCount++;
+            daysList.push({
+              date: dateFormatted,
+              day: dayOfWeek,
+              status: 'half_day',
+              markIn: markInStr,
+              markOut: markOutStr,
+              duration: durStr,
+              durationMinutes: durMinutes,
+              loc: attRecord.location_name || 'Institute Lab',
+            });
+          } else { // >= 9 hours => Present
+            presentCount++;
+            daysList.push({
+              date: dateFormatted,
+              day: dayOfWeek,
+              status: 'present',
+              markIn: markInStr,
+              markOut: markOutStr,
+              duration: durStr,
+              durationMinutes: durMinutes,
+              loc: attRecord.location_name || 'Institute Lab',
+            });
+          }
         }
       } else if (leaveRecord || (attRecord && attRecord.day_status === 'leave')) {
         leaveCount++;
@@ -268,6 +273,7 @@ export default function AdminReportsPage() {
     return {
       daysList,
       presentCount,
+      pendingCount,
       halfDayCount,
       leaveCount,
       totalHoursStr,
@@ -519,13 +525,13 @@ export default function AdminReportsPage() {
                         <span className="h-2.5 w-2.5 rounded-full bg-[#28a745]" /> Present ({report.presentCount})
                       </span>
                       <span className="flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-full bg-[#d97706]" /> Pending ({report.pendingCount})
+                      </span>
+                      <span className="flex items-center gap-1.5">
                         <span className="h-2.5 w-2.5 rounded-full bg-[#fd7e14]" /> Half Day ({report.halfDayCount})
                       </span>
                       <span className="flex items-center gap-1.5">
                         <span className="h-2.5 w-2.5 rounded-full bg-[#dc3545]" /> Leave ({report.leaveCount})
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="h-2.5 w-2.5 rounded-full bg-[#64748b]" /> Week Off
                       </span>
                     </div>
                   </div>
@@ -555,6 +561,10 @@ export default function AdminReportsPage() {
                                 {log.status === 'present' ? (
                                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center gap-1 w-fit">
                                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" /> Present
+                                  </span>
+                                ) : log.status === 'pending' && log.markIn && log.markIn !== '--' ? (
+                                  <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center gap-1 w-fit border border-amber-300">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-600" /> ⏳ Pending
                                   </span>
                                 ) : log.status === 'leave' ? (
                                   <span className={`px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 w-fit ${
