@@ -215,21 +215,32 @@ export default function AdminTrainerDetailPage() {
     trainerIncentiveTier = 'Standard (≤ 5h)';
   }
 
-  const monthDisplayLabel = new Date(`${selectedMonth}-01`).toLocaleDateString('en-US', {
+  const [dispY, dispM] = (selectedMonth || '2026-09').split('-').map(Number);
+  const monthDisplayLabel = new Date(dispY, (dispM || 1) - 1, 1).toLocaleDateString('en-US', {
     month: 'long',
     year: 'numeric',
   });
 
   const handlePrevMonth = () => {
-    const [y, m] = selectedMonth.split('-').map(Number);
-    const prevDate = new Date(y, m - 2, 1);
-    setSelectedMonth(prevDate.toISOString().slice(0, 7));
+    let [y, m] = selectedMonth.split('-').map(Number);
+    m -= 1;
+    if (m < 1) {
+      m = 12;
+      y -= 1;
+    }
+    const formatted = `${y}-${String(m).padStart(2, '0')}`;
+    setSelectedMonth(formatted);
   };
 
   const handleNextMonth = () => {
-    const [y, m] = selectedMonth.split('-').map(Number);
-    const nextDate = new Date(y, m, 1);
-    setSelectedMonth(nextDate.toISOString().slice(0, 7));
+    let [y, m] = selectedMonth.split('-').map(Number);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+    const formatted = `${y}-${String(m).padStart(2, '0')}`;
+    setSelectedMonth(formatted);
   };
 
   return (

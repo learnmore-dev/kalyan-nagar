@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '@/components/Sidebar';
 import AdminGuard from '@/components/AdminGuard';
+import SupportChatWidget from '@/components/SupportChatWidget';
 
 export default function AdminLayout() {
   return (
@@ -10,6 +11,8 @@ export default function AdminLayout() {
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <Outlet />
       </div>
+      <SupportChatWidget />
     </div>
   );
 }
+

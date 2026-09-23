@@ -18,9 +18,74 @@ import {
   X,
   ShieldCheck,
   ChevronRight,
+  ChevronLeft,
   TrendingUp,
   Users,
+  Quote,
+  Lightbulb,
+  Play,
+  Pause,
 } from 'lucide-react';
+
+/* ── IT & Programming Motivational Quotes with Dedicated HD Backgrounds ─────────── */
+const IT_MOTIVATIONAL_QUOTES = [
+  {
+    quote: "Talk is cheap. Show me the code.",
+    author: "Linus Torvalds",
+    role: "Creator of Linux & Git",
+    tag: "💻 Coding Philosophy",
+    bgImage: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "The only way to do great work is to love what you do. Great mentors shape future innovators.",
+    author: "Steve Jobs",
+    role: "Co-founder, Apple",
+    tag: "🚀 Passion & Innovation",
+    bgImage: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Programs must be written for people to read, and only incidentally for machines to execute.",
+    author: "Harold Abelson",
+    role: "MIT Professor & Author",
+    tag: "🧠 Clean Architecture",
+    bgImage: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "First, solve the problem. Then, write the code. Inspire every learner to think logically.",
+    author: "John Johnson",
+    role: "Software Architect",
+    tag: "🧩 Problem Solving",
+    bgImage: "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "The best way to predict the future is to invent it with code.",
+    author: "Alan Kay",
+    role: "Computer Scientist & Pioneer",
+    tag: "🔮 Future of Tech",
+    bgImage: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Teaching is the greatest act of optimism. Every line of code you explain transforms a student's life.",
+    author: "Colleen Wilcox",
+    role: "Educator & Visionary",
+    tag: "🎓 Mentor Motivation",
+    bgImage: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Simplicity is prerequisite for reliability. Build solid foundations for your students.",
+    author: "Edsger W. Dijkstra",
+    role: "Turing Award Winner",
+    tag: "⚡ Software Engineering",
+    bgImage: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Any fool can write code that a computer can understand. Good programmers write code that humans can understand.",
+    author: "Martin Fowler",
+    role: "Author of Refactoring",
+    tag: "💡 Code Craftsmanship",
+    bgImage: "https://images.unsplash.com/photo-1504639725590-34d0984388bd?w=1600&auto=format&fit=crop&q=80",
+  },
+];
 
 /* ── Reusable policy section wrapper ──────── */
 function PolicySection({ title, color, children }: { title: string; color: string; children: React.ReactNode }) {
@@ -56,6 +121,18 @@ export default function TrainerDashboardPage() {
   const [batchFilter, setBatchFilter] = useState<'active'|'all'>('active');
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [, setLoading] = useState(true);
+
+  // Motivational Quote Carousel State
+  const [quoteIdx, setQuoteIdx] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+    const timer = setInterval(() => {
+      setQuoteIdx((prev) => (prev + 1) % IT_MOTIVATIONAL_QUOTES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [isAutoPlaying]);
 
   useEffect(() => {
     const u = getStoredUser();
@@ -194,33 +271,162 @@ export default function TrainerDashboardPage() {
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-5 sm:p-7 lg:p-8 space-y-7">
 
-      {/* ── Hero banner ───────────────────────────────── */}
-      <div className="canva-gradient-banner rounded-2xl p-6 sm:p-8 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="space-y-3 relative z-10">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold"
-                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />
-            Faculty Dashboard
-          </span>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-tight">
-            Welcome back, {user?.name?.split(' ')[0] || 'Trainer'}!
-          </h1>
-          <p className="text-sm text-blue-100 max-w-lg leading-relaxed" style={{ fontWeight: 400 }}>
-            Track your active batches, {monthName} teaching hours, attendance status, and monthly incentive eligibility.
-          </p>
-        </div>
+      {/* ── Hero banner with Dynamic Rotating IT Backgrounds & Motivational Quote Carousel ───────────────────────────────── */}
+      <div className="relative rounded-3xl p-6 sm:p-8 lg:p-9 text-white overflow-hidden shadow-2xl border border-indigo-500/20 min-h-[280px]">
+        {/* Dynamic Rotating Background Images with Smooth Crossfade */}
+        {IT_MOTIVATIONAL_QUOTES.map((item, idx) => (
+          <div
+            key={idx}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              idx === quoteIdx ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
+            }`}
+            style={{
+              backgroundImage: `linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 27, 75, 0.90) 50%, rgba(49, 46, 129, 0.88) 100%), url('${item.bgImage}')`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transitionProperty: 'opacity, transform',
+              transitionDuration: '1000ms',
+            }}
+          />
+        ))}
 
-        <div className="flex flex-wrap gap-2.5 relative z-10 shrink-0">
-          <Link to="/trainer/sessions/add"
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all"
-                style={{ background: '#ffffff', color: '#1d4ed8', boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-            <Plus className="h-3.5 w-3.5" /> Log Session
-          </Link>
-          <Link to="/trainer/attendance"
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all"
-                style={{ background: 'rgba(255,255,255,0.15)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.2)' }}>
-            <Camera className="h-3.5 w-3.5" /> Attendance
-          </Link>
+        {/* Ambient Glowing Orbs */}
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 right-10 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          {/* Left Column: Greeting & Info */}
+          <div className="space-y-3 max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-white/10 text-indigo-200 border border-white/15 backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                Faculty Portal
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/30">
+                <Sparkles className="h-3 w-3 text-amber-300" /> Daily Inspiration
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight text-white drop-shadow-sm">
+              Welcome back, {user?.name?.split(' ')[0] || 'Trainer'}! 👋
+            </h1>
+
+            <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed font-normal">
+              Track your active batches, {monthName} teaching hours, biometric attendance logs, and incentive status.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-2.5 pt-2">
+              <Link
+                to="/trainer/sessions/add"
+                className="flex items-center gap-1.5 px-4.5 py-2.5 rounded-xl text-xs font-extrabold bg-white text-indigo-900 hover:bg-slate-100 shadow-md transition-all active:scale-95"
+              >
+                <Plus className="h-4 w-4 text-indigo-600" /> Log Session
+              </Link>
+              <Link
+                to="/trainer/attendance"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md transition-all active:scale-95"
+              >
+                <Camera className="h-3.5 w-3.5" /> Biometric Attendance
+              </Link>
+              <Link
+                to="/trainer/batches"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md transition-all active:scale-95"
+              >
+                <BookOpen className="h-3.5 w-3.5" /> My Batches
+              </Link>
+            </div>
+          </div>
+
+          {/* Right Column: Interactive Motivational Quotes Carousel */}
+          <div className="w-full lg:w-[480px] bg-slate-900/60 backdrop-blur-xl border border-white/15 rounded-2xl p-5 space-y-4 shadow-xl relative overflow-hidden group">
+            {/* Top Bar inside Quote Box */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/30 border border-indigo-400/30 text-[10px] font-extrabold text-indigo-200 uppercase tracking-wider">
+                {IT_MOTIVATIONAL_QUOTES[quoteIdx].tag}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-indigo-200 transition-colors cursor-pointer text-[10px] flex items-center gap-1"
+                  title={isAutoPlaying ? 'Pause auto-rotation' : 'Play auto-rotation'}
+                >
+                  {isAutoPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  <span className="font-mono text-[9px]">{isAutoPlaying ? 'Auto' : 'Paused'}</span>
+                </button>
+
+                <div className="h-3 w-px bg-white/10 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) =>
+                      prev === 0 ? IT_MOTIVATIONAL_QUOTES.length - 1 : prev - 1
+                    )
+                  }
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Previous Quote"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) => (prev + 1) % IT_MOTIVATIONAL_QUOTES.length)
+                  }
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Next Quote"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quote Body with Icon */}
+            <div className="relative min-h-[90px] flex flex-col justify-between">
+              <div className="flex gap-2.5">
+                <Quote className="h-5 w-5 text-indigo-400 shrink-0 opacity-70 mt-0.5" />
+                <p className="text-xs sm:text-sm text-slate-100 font-semibold italic leading-relaxed">
+                  "{IT_MOTIVATIONAL_QUOTES[quoteIdx].quote}"
+                </p>
+              </div>
+
+              <div className="pt-3 flex items-center justify-between text-[11px]">
+                <div>
+                  <span className="font-extrabold text-white">
+                    — {IT_MOTIVATIONAL_QUOTES[quoteIdx].author}
+                  </span>
+                  <span className="text-slate-300 ml-1.5 text-[10px]">
+                    ({IT_MOTIVATIONAL_QUOTES[quoteIdx].role})
+                  </span>
+                </div>
+
+                <span className="font-mono text-[10px] text-slate-400 font-bold">
+                  {quoteIdx + 1}/{IT_MOTIVATIONAL_QUOTES.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Indicator Dots */}
+            <div className="flex items-center justify-center gap-1.5 pt-1">
+              {IT_MOTIVATIONAL_QUOTES.map((_, dotIdx) => (
+                <button
+                  key={dotIdx}
+                  type="button"
+                  onClick={() => setQuoteIdx(dotIdx)}
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    dotIdx === quoteIdx
+                      ? 'w-6 bg-indigo-400 shadow-xs'
+                      : 'w-1.5 bg-white/25 hover:bg-white/50'
+                  }`}
+                  title={`Quote ${dotIdx + 1}`}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

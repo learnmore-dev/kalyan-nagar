@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Batch, User, Student, StudentStatus, StudentAttendanceRecord } from '@/lib/types';
-import { CourseSyllabus, INSTITUTE_COURSES, getCourseById } from '@/lib/syllabusData';
 import { getStoredUser } from '@/lib/auth';
+import { whatsappService } from '@/lib/whatsappService';
 import {
   Calendar,
   Clock,
@@ -15,16 +15,73 @@ import {
   UserX,
   Plane,
   Sparkles,
-  CheckSquare,
-  Square,
-  ChevronDown,
-  ChevronUp
+  Paperclip,
+  FileText,
+  Trash2,
+  UploadCloud,
+  Quote,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Pause,
 } from 'lucide-react';
+
+/* ── Teaching & Knowledge Delivery Quotes with HD Backgrounds ─────────── */
+const TEACHING_QUOTES = [
+  {
+    quote: "If you can't explain it simply, you don't understand it well enough. Teach with clarity and practical examples.",
+    author: "Richard Feynman",
+    role: "Nobel Laureate Physicist",
+    tag: "💡 The Feynman Method",
+    bgImage: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Teaching is the highest form of understanding. Every line of code you clarify builds a coder's future.",
+    author: "Aristotle",
+    role: "Philosopher & Polymath",
+    tag: "🎓 Teaching Mastery",
+    bgImage: "https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "The mind is not a vessel to be filled, but a fire to be kindled with creative coding projects.",
+    author: "Plutarch",
+    role: "Philosopher & Essayist",
+    tag: "🔥 Igniting Passion",
+    bgImage: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Knowledge increases by sharing, not by saving. Empower your batch with industry best practices.",
+    author: "Kamari aka Lyrikal",
+    role: "Educator & Author",
+    tag: "🚀 Knowledge Sharing",
+    bgImage: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Tell me and I forget. Teach me and I remember. Involve me in live coding and I truly learn.",
+    author: "Benjamin Franklin",
+    role: "Polymath & Inventor",
+    tag: "⚡ Hands-On Learning",
+    bgImage: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1600&auto=format&fit=crop&q=80",
+  },
+];
 
 export default function TrainerAddSessionPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preSelectedBatchId = searchParams.get('batch') || '';
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Quotes Carousel State
+  const [quoteIdx, setQuoteIdx] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+    const timer = setInterval(() => {
+      setQuoteIdx((prev) => (prev + 1) % TEACHING_QUOTES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [isAutoPlaying]);
 
   const [user, setUser] = useState<User | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -39,12 +96,13 @@ export default function TrainerAddSessionPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [whatsappShareUrl, setWhatsappShareUrl] = useState<string | null>(null);
 
-  const [currentSyllabus, setCurrentSyllabus] = useState<CourseSyllabus | null>(null);
-  const [selectedModuleIndex, setSelectedModuleIndex] = useState<number>(0);
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
-  const [customNotes, setCustomNotes] = useState<string>('');
-  const [showSyllabusPicker, setShowSyllabusPicker] = useState<boolean>(true);
-  const [batchCoverage, setBatchCoverage] = useState<{ total_topics: number; covered_topics: number; coverage_percentage: number } | null>(null);
+  // Document / Attachment upload state
+  const [attachedFile, setAttachedFile] = useState<{
+    base64: string;
+    fileName: string;
+    mimeType: string;
+    sizeFormatted: string;
+  } | null>(null);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [loadingStudents, setLoadingStudents] = useState<boolean>(false);
@@ -80,58 +138,6 @@ export default function TrainerAddSessionPage() {
   useEffect(() => {
     if (!selectedBatchId) return;
 
-    const currentBatch = batches.find((b) => b.id === selectedBatchId);
-    if (currentBatch) {
-      let course: CourseSyllabus | undefined;
-      if (currentBatch.course_id) {
-        course = getCourseById(currentBatch.course_id);
-      }
-      if (!course) {
-        const nameLower = currentBatch.name.toLowerCase();
-        course =
-          INSTITUTE_COURSES.find((c) => nameLower.includes(c.name.toLowerCase().replace(' course syllabus', '').replace(' syllabus', ''))) ||
-          (nameLower.includes('sql') ? getCourseById('course_sql') : undefined) ||
-          (nameLower.includes('mern') ? getCourseById('course_mern') : undefined) ||
-          (nameLower.includes('mean') ? getCourseById('course_mean') : undefined) ||
-          (nameLower.includes('tableau') ? getCourseById('course_tableau') : undefined) ||
-          (nameLower.includes('power bi') || nameLower.includes('powerbi') ? getCourseById('course_powerbi') : undefined) ||
-          (nameLower.includes('excel') ? getCourseById('course_excel') : undefined) ||
-          (nameLower.includes('django') ? getCourseById('course_django') : undefined) ||
-          (nameLower.includes('python') ? getCourseById('course_python') : undefined) ||
-          (nameLower.includes('data science') ? getCourseById('course_datascience') : undefined) ||
-          (nameLower.includes('genai') || nameLower.includes('machine learning') ? getCourseById('course_genai') : undefined) ||
-          (nameLower.includes('mlops') ? getCourseById('course_mlops') : undefined) ||
-          (nameLower.includes('selenium') && nameLower.includes('python') ? getCourseById('course_selenium_python') : undefined) ||
-          (nameLower.includes('selenium') ? getCourseById('course_selenium_java') : undefined) ||
-          (nameLower.includes('manual testing') || nameLower.includes('testing') ? getCourseById('course_manual_testing') : undefined) ||
-          (nameLower.includes('successfactors') ? getCourseById('course_sap_successfactors') : undefined) ||
-          (nameLower.includes('sap mm') ? getCourseById('course_sap_mm') : undefined) ||
-          (nameLower.includes('sap fico') || nameLower.includes('fico') ? getCourseById('course_sap_fico') : undefined) ||
-          (nameLower.includes('salesforce') && nameLower.includes('dev') ? getCourseById('course_salesforce_developer') : undefined) ||
-          (nameLower.includes('salesforce') ? getCourseById('course_salesforce_admin') : undefined) ||
-          (nameLower.includes('azure dev') || nameLower.includes('az-204') ? getCourseById('course_azure_developer') : undefined) ||
-          (nameLower.includes('azure admin') || nameLower.includes('az-104') ? getCourseById('course_azure_admin') : undefined) ||
-          (nameLower.includes('databricks') ? getCourseById('course_azure_databricks') : undefined) ||
-          (nameLower.includes('azure data') ? getCourseById('course_azure_data_engineering') : undefined) ||
-          (nameLower.includes('azure ad') || nameLower.includes('active directory') ? getCourseById('course_azure_ad') : undefined) ||
-          (nameLower.includes('devops') ? getCourseById('course_devops') : undefined) ||
-          (nameLower.includes('linux') ? getCourseById('course_linux') : undefined) ||
-          (nameLower.includes('flutter') || nameLower.includes('dart') ? getCourseById('course_flutter') : undefined) ||
-          (nameLower.includes('android') || nameLower.includes('kotlin') ? getCourseById('course_android') : undefined) ||
-          (nameLower.includes('cyber') || nameLower.includes('security') ? getCourseById('course_cybersecurity') : undefined) ||
-          (nameLower.includes('c++') || nameLower.includes('c & c++') ? getCourseById('course_cpp') : undefined) ||
-          (nameLower.includes('dsa') || nameLower.includes('data structure') ? getCourseById('course_dsa') : undefined) ||
-          (nameLower.includes('angular') ? getCourseById('course_angular') : undefined) ||
-          (nameLower.includes('golang') || nameLower.includes('go ') ? getCourseById('course_golang') : undefined) ||
-          (nameLower.includes('basic computer') || nameLower.includes('computer') ? getCourseById('course_basic_computer') : undefined) ||
-          INSTITUTE_COURSES[0];
-      }
-
-      setCurrentSyllabus(course || null);
-      setSelectedModuleIndex(0);
-      setSelectedTopics([]);
-    }
-
     const fetchStudents = async () => {
       setLoadingStudents(true);
       try {
@@ -153,92 +159,41 @@ export default function TrainerAddSessionPage() {
     };
 
     fetchStudents();
+  }, [selectedBatchId]);
 
-    const fetchCoverage = async () => {
-      try {
-        const res = await fetch(`/api/topics/coverage?batch_id=${selectedBatchId}`);
-        const data = await res.json();
-        if (data.success && data.coverage) {
-          setBatchCoverage(data.coverage);
-        }
-      } catch {
-        // silent
-      }
-    };
-    fetchCoverage();
-  }, [selectedBatchId, batches]);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const updateTopicCoveredText = (topics: string[], notes: string) => {
-    if (!currentSyllabus) {
-      const lines = topics.map((t) => `• ${t}`);
-      if (notes.trim()) lines.push(`\n📝 Practice / Notes: ${notes.trim()}`);
-      setTopicCovered(lines.join('\n'));
+    const sizeInMB = file.size / (1024 * 1024);
+    if (sizeInMB > 15) {
+      alert('File size exceeds 15MB limit. Please choose a smaller file.');
       return;
     }
 
-    const grouped = new Map<string, string[]>();
-    topics.forEach((t) => {
-      const parentMod = currentSyllabus.modules.find((m) => m.topics.includes(t));
-      const modTitle = parentMod
-        ? `MODULE ${parentMod.module_number} >> ${parentMod.title}`
-        : 'Additional Topics';
-      if (!grouped.has(modTitle)) {
-        grouped.set(modTitle, []);
-      }
-      grouped.get(modTitle)!.push(t);
-    });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64String = reader.result as string;
+      const formattedSize =
+        file.size > 1024 * 1024
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+          : `${Math.round(file.size / 1024)} KB`;
 
-    const blocks: string[] = [];
-    grouped.forEach((modTopics, modHeader) => {
-      blocks.push(`${modHeader}\n` + modTopics.map((t) => `• ${t}`).join('\n'));
-    });
+      setAttachedFile({
+        base64: base64String,
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        sizeFormatted: formattedSize,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
-    if (notes.trim()) {
-      blocks.push(`📝 Practice / Notes: ${notes.trim()}`);
+  const handleRemoveFile = () => {
+    setAttachedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
-
-    setTopicCovered(blocks.join('\n\n'));
-  };
-
-  const handleToggleTopic = (topic: string) => {
-    const nextTopics = selectedTopics.includes(topic)
-      ? selectedTopics.filter((t) => t !== topic)
-      : [...selectedTopics, topic];
-
-    setSelectedTopics(nextTopics);
-    updateTopicCoveredText(nextTopics, customNotes);
-  };
-
-  const handleSelectAllInModule = () => {
-    const activeMod = currentSyllabus?.modules[selectedModuleIndex];
-    if (!activeMod) return;
-
-    const combined = Array.from(new Set([...selectedTopics, ...activeMod.topics]));
-    setSelectedTopics(combined);
-    updateTopicCoveredText(combined, customNotes);
-  };
-
-  const handleClearModuleTopics = () => {
-    const activeMod = currentSyllabus?.modules[selectedModuleIndex];
-    if (!activeMod) return;
-
-    const remaining = selectedTopics.filter((t) => !activeMod.topics.includes(t));
-    setSelectedTopics(remaining);
-    updateTopicCoveredText(remaining, customNotes);
-  };
-
-  const handleClearAllSelection = () => {
-    setSelectedTopics([]);
-    updateTopicCoveredText([], customNotes);
-  };
-
-  const handleModuleChange = (newIdx: number) => {
-    setSelectedModuleIndex(newIdx);
-  };
-
-  const handleCustomNotesChange = (val: string) => {
-    setCustomNotes(val);
-    updateTopicCoveredText(selectedTopics, val);
   };
 
   const handleStatusChange = (studentId: string, status: StudentStatus) => {
@@ -276,12 +231,11 @@ export default function TrainerAddSessionPage() {
   const attendancePct = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 100;
 
   const currentBatchObj = batches.find((b) => b.id === selectedBatchId);
-  const activeModule = currentSyllabus?.modules[selectedModuleIndex];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedBatchId || !hoursTaken || !topicCovered.trim()) {
-      alert('Please fill in topics covered and session hours.');
+      alert('Please enter the topic covered and class hours.');
       return;
     }
 
@@ -301,21 +255,6 @@ export default function TrainerAddSessionPage() {
         };
       });
 
-      const coveredModuleNumbers: number[] = [];
-      if (currentSyllabus) {
-        currentSyllabus.modules.forEach((m) => {
-          if (m.topics.some((t) => selectedTopics.includes(t))) {
-            coveredModuleNumbers.push(m.module_number);
-          }
-        });
-      }
-      const moduleNameLabel =
-        coveredModuleNumbers.length > 1
-          ? `MODULES ${coveredModuleNumbers.join(', ')}`
-          : activeModule
-          ? `MODULE ${activeModule.module_number} >> ${activeModule.title}`
-          : undefined;
-
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -323,10 +262,7 @@ export default function TrainerAddSessionPage() {
           batch_id: selectedBatchId,
           trainer_id: user?.id || '',
           trainer_name: user?.name || user?.username || 'Trainer',
-          course_id: currentSyllabus?.id,
-          course_name: currentSyllabus?.name,
-          module_name: moduleNameLabel,
-          selected_topics: selectedTopics,
+          course_name: currentBatchObj?.course_name || 'Technical Course',
           session_date: sessionDate,
           hours_taken: hoursNum,
           description: topicCovered,
@@ -338,39 +274,49 @@ export default function TrainerAddSessionPage() {
       const data = await res.json();
 
       if (data.success) {
-        const absentStudents = studentsAttendancePayload.filter((s) => s.status === 'absent');
-        const leaveStudents = studentsAttendancePayload.filter((s) => s.status === 'leave');
-
         const formattedMessage = [
-          `📖 *Topics Covered Today:*`,
-          `${topicCovered}`,
-          ``,
-          `👥 *STUDENT ATTENDANCE & LEAVES:*`,
-          `📈 *Attendance:* ${presentCount}/${totalCount} Present (${attendancePct}%)`,
-          absentStudents.length > 0
-            ? `❌ *Absent:* ${absentStudents.map((s) => s.student_name).join(', ')} (${absentStudents.length})`
-            : `✅ *Absent:* None (All Present)`,
-          leaveStudents.length > 0
-            ? `🏖️ *On Leave:* ${leaveStudents.map((s) => `${s.student_name} (${s.leave_reason || 'Approved'})`).join(', ')}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
-
+          `🏷️ *Batch:* ${currentBatchObj?.name || 'Batch'}`,
+          `📅 *Date:* ${sessionDate}`,
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `📝 *Topic Covered:* ${topicCovered}`,
+          `⏱️ *Hours:* ${hoursNum} hrs`,
+          `━━━━━━━━━━━━━━━━━━━━`,
+          `👨‍🏫 *Trainer:* ${user?.name || user?.username || 'Trainer'}`
+        ].join('\n');
         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(formattedMessage)}`;
         setWhatsappShareUrl(waUrl);
 
-        if (data.whatsapp?.deliveredTo) {
-          setSuccessMsg(
-            `Session logged & automatically broadcasted to WhatsApp Group: "${data.whatsapp.deliveredTo}"! 🤖`
-          );
-        } else {
-          setSuccessMsg(`Session logged successfully with Syllabus Topics & Student Attendance!`);
+        if (autoSendWhatsApp && currentBatchObj) {
+          try {
+            await whatsappService.sendBatchTopicAndDocument({
+              batch: currentBatchObj,
+              topicCovered: topicCovered,
+              date: sessionDate,
+              attachment: attachedFile
+                ? {
+                    document: attachedFile.base64,
+                    fileName: attachedFile.fileName,
+                    mimeType: attachedFile.mimeType,
+                  }
+                : undefined,
+            });
+          } catch {}
         }
 
+        const groupLabel = currentBatchObj?.whatsapp_group_name || currentBatchObj?.name;
+        setSuccessMsg(
+          `Session saved successfully! ${
+            autoSendWhatsApp
+              ? `Message & Document broadcasted to WhatsApp Group: "${groupLabel}"! 🚀`
+              : ''
+          }`
+        );
+
         setTopicCovered('');
-        setSelectedTopics([]);
-        setCustomNotes('');
+        setAttachedFile(null);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }
     } catch {
       alert('Failed to save session');
@@ -381,73 +327,191 @@ export default function TrainerAddSessionPage() {
 
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Batches
-        </button>
+      <button
+        onClick={() => navigate(-1)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Batches
+      </button>
 
-        <div className="w-full rounded-3xl overflow-hidden shadow-xl border border-slate-200 bg-white">
-          <div className="w-full bg-gradient-to-r from-[#667eea] to-[#764ba2] p-6 text-center text-white relative overflow-hidden">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-bold tracking-wide backdrop-blur-md mb-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-yellow-300" /> Syllabus Topic Picker & Attendance Engine
+      {/* ── Dynamic Teaching & Broadcast Hero Banner ───────────────────────────────── */}
+      <div className="relative rounded-3xl p-6 sm:p-8 lg:p-9 text-white overflow-hidden shadow-2xl border border-indigo-500/30 min-h-[260px] bg-slate-950">
+        {/* Dynamic Rotating Background Images with Smooth Crossfade */}
+        {TEACHING_QUOTES.map((item, idx) => (
+          <div
+            key={idx}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              idx === quoteIdx ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
+            }`}
+            style={{
+              backgroundImage: `linear-gradient(135deg, rgba(67, 56, 202, 0.94) 0%, rgba(30, 27, 75, 0.93) 50%, rgba(15, 23, 42, 0.92) 100%), url('${item.bgImage}')`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transitionProperty: 'opacity, transform',
+              transitionDuration: '1000ms',
+            }}
+          />
+        ))}
+
+        {/* Ambient Glowing Orbs */}
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-violet-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 right-10 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          {/* Left Column: Title & Info */}
+          <div className="space-y-3 max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-violet-400/20 text-violet-200 border border-violet-400/30 backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300" /> Topic Covered & WhatsApp Broadcast
+              </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white border border-white/15">
+                <BookOpen className="h-3.5 w-3.5 text-indigo-300" /> Class Session Logger
+              </span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-              Add Work Session & Select Syllabus Topics
-            </h2>
-            <p className="text-xs text-white/80 pt-1">
-              Select module & topics from official course syllabus — auto-broadcasts to WhatsApp Group
+
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight text-white drop-shadow-sm">
+              Log Class Session & Broadcast
+            </h1>
+
+            <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed font-normal">
+              Enter topics taught today and attach class documents or notes — auto-broadcasts directly to batch WhatsApp group in 1 click!
             </p>
           </div>
 
-          {successMsg && (
-            <div className="m-6 p-4.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 space-y-3 shadow-xs">
-              <div className="flex items-center gap-2 font-bold text-sm">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-                {successMsg}
-              </div>
+          {/* Right Column: Interactive Motivational Quotes Carousel */}
+          <div className="w-full lg:w-[480px] bg-slate-950/70 backdrop-blur-xl border border-indigo-500/30 rounded-2xl p-5 space-y-4 shadow-xl relative overflow-hidden group">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/30 border border-indigo-400/30 text-[10px] font-extrabold text-indigo-200 uppercase tracking-wider">
+                {TEACHING_QUOTES[quoteIdx].tag}
+              </span>
 
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                {whatsappShareUrl && (
-                  <a
-                    href={whatsappShareUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs shadow-sm transition-all"
-                  >
-                    <MessageSquare className="h-4 w-4" /> Open in WhatsApp
-                  </a>
-                )}
-
+              <div className="flex items-center gap-1">
                 <button
-                  onClick={() => navigate(`/trainer/batches/${selectedBatchId}`)}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                  type="button"
+                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title={isAutoPlaying ? 'Pause rotation' : 'Play rotation'}
                 >
-                  View Batch Overview
+                  {isAutoPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) => (prev - 1 + TEACHING_QUOTES.length) % TEACHING_QUOTES.length)
+                  }
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Previous quote"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuoteIdx((prev) => (prev + 1) % TEACHING_QUOTES.length)}
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Next quote"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
-          )}
 
-          <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6 text-xs sm:text-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-indigo-600" /> CLASS DATE
+            <div className="min-h-[72px] flex items-start gap-3">
+              <Quote className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5 opacity-80" />
+              <p className="text-xs sm:text-sm font-medium text-slate-100 italic leading-snug">
+                "{TEACHING_QUOTES[quoteIdx].quote}"
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <div className="text-xs font-bold text-white">{TEACHING_QUOTES[quoteIdx].author}</div>
+                <div className="text-[10px] text-indigo-300">{TEACHING_QUOTES[quoteIdx].role}</div>
+              </div>
+
+              {/* Step indicator dots */}
+              <div className="flex items-center gap-1">
+                {TEACHING_QUOTES.map((_, dotIdx) => (
+                  <button
+                    key={dotIdx}
+                    type="button"
+                    onClick={() => setQuoteIdx(dotIdx)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      dotIdx === quoteIdx ? 'w-5 bg-indigo-400' : 'w-1.5 bg-white/30 hover:bg-white/50'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main Executive Session Form Container ───────────────────────────────── */}
+      <div className="w-full rounded-3xl overflow-hidden shadow-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl transition-all">
+        {successMsg && (
+          <div className="m-6 sm:m-8 p-5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200/80 text-emerald-900 space-y-3 shadow-md">
+            <div className="flex items-center gap-2.5 font-extrabold text-sm sm:text-base">
+              <div className="h-8 w-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              {successMsg}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-1 pl-10.5">
+              {whatsappShareUrl && (
+                <a
+                  href={whatsappShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4.5 py-2.5 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-extrabold text-xs shadow-md shadow-emerald-600/20 transition-all hover:scale-[1.02] active:scale-95"
+                >
+                  <MessageSquare className="h-4 w-4" /> Open Broadcast in WhatsApp
+                </a>
+              )}
+
+              <button
+                onClick={() => navigate(`/trainer/batches/${selectedBatchId}`)}
+                className="inline-flex items-center gap-1.5 px-4.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                View Batch Overview
+              </button>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="p-6 sm:p-8 lg:p-10 space-y-8 text-xs sm:text-sm">
+          {/* Section 1: Session Meta (Date & Hours) */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+              <span className="h-5 w-1.5 rounded-full bg-indigo-600" />
+              <span>Step 1: Session Schedule & Time</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:border-indigo-300 transition-all space-y-2">
+                <label className="block font-bold text-slate-700 text-xs flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                    <Calendar className="h-3.5 w-3.5" />
+                  </div>
+                  <span>Class Date</span>
+                  <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="date"
                   required
                   value={sessionDate}
                   onChange={(e) => setSessionDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-800 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+                  className="w-full rounded-xl border border-slate-300/90 bg-white px-3.5 py-2.5 text-slate-900 font-bold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all shadow-xs"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5 text-indigo-600" /> HOURS TAKEN
+              <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:border-indigo-300 transition-all space-y-2">
+                <label className="block font-bold text-slate-700 text-xs flex items-center gap-2">
+                  <div className="h-6 w-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                    <Clock className="h-3.5 w-3.5" />
+                  </div>
+                  <span>Session Duration (Hours)</span>
+                  <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -458,390 +522,363 @@ export default function TrainerAddSessionPage() {
                   value={hoursTaken}
                   onChange={(e) => setHoursTaken(e.target.value)}
                   placeholder="e.g. 2"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-800 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+                  className="w-full rounded-xl border border-slate-300/90 bg-white px-3.5 py-2.5 text-slate-900 font-bold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all shadow-xs"
                 />
               </div>
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-                <BookOpen className="h-3.5 w-3.5 text-indigo-600" /> SELECT BATCH
-              </label>
-              {batches.length === 0 ? (
-                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold">
-                  ⚠️ No batches have been assigned to your profile yet. Please ask the Institute Admin to assign a batch to you before logging hours.
-                </div>
-              ) : (
-                <>
-                  <select
-                    value={selectedBatchId}
-                    onChange={(e) => setSelectedBatchId(e.target.value)}
-                    required
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-bold focus:border-indigo-600 focus:outline-none transition-all cursor-pointer"
-                  >
-                    {batches.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.name} ({batch.used_hours || 0}/{batch.total_hours} hrs)
-                      </option>
-                    ))}
-                  </select>
-
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 flex items-center justify-between">
-                    <span className="font-semibold flex items-center gap-1.5">
-                      <MessageSquare className="h-3.5 w-3.5 text-[#25D366]" />
-                      Linked Group: <strong>{currentBatchObj?.whatsapp_group_name || `${currentBatchObj?.name || 'Batch'} WhatsApp Group`}</strong>
-                    </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-200/80 text-emerald-900 font-extrabold text-[10px]">
-                      🟢 Auto-Broadcast Ready
-                    </span>
-                  </div>
-                </>
-              )}
+          {/* Section 2: Batch Selection & WhatsApp Link */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+              <span className="h-5 w-1.5 rounded-full bg-indigo-600" />
+              <span>Step 2: Target Batch & Connected Channel</span>
             </div>
 
-            {currentSyllabus && (
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-blue-50/50 to-slate-50 border border-indigo-200 space-y-4 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-                      <BookOpen className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <div className="font-extrabold text-sm text-indigo-950 flex items-center gap-1.5">
-                        <span>{currentSyllabus.name}</span>
-                        <span className="px-2 py-0.5 rounded-full bg-indigo-200/70 text-indigo-900 text-[10px] font-mono">
-                          {currentSyllabus.modules.length} Modules
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Select today's module & subtopics — auto-fills Topic Covered below
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSyllabusPicker(!showSyllabusPicker)}
-                    className="p-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                  >
-                    <span>{showSyllabusPicker ? 'Hide Picker' : 'Show Syllabus'}</span>
-                    {showSyllabusPicker ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  </button>
+            <div className="p-5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-3">
+              <label className="block font-bold text-slate-700 text-xs flex items-center gap-2">
+                <div className="h-6 w-6 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                  <BookOpen className="h-3.5 w-3.5" />
                 </div>
-
-                {batchCoverage && (
-                  <div className="p-3 bg-white rounded-xl border border-indigo-200/80 shadow-2xs space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                        📊 <span>Course Topic Coverage:</span>
-                      </span>
-                      <span className="font-mono font-extrabold text-indigo-700">
-                        {batchCoverage.covered_topics} / {batchCoverage.total_topics} Topics ({batchCoverage.coverage_percentage}%)
-                      </span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-600 to-blue-500 transition-all duration-300"
-                        style={{ width: `${batchCoverage.coverage_percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {showSyllabusPicker && (
-                  <div className="space-y-3.5 pt-1">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-[10px] font-extrabold text-indigo-900 uppercase">
-                          1. CHOOSE MODULE TO VIEW & SELECT TOPICS:
-                        </label>
-                        {selectedTopics.length > 0 && (
-                          <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
-                            {selectedTopics.length} Topics Selected Across Syllabus
-                          </span>
-                        )}
-                      </div>
-                      <select
-                        value={selectedModuleIndex}
-                        onChange={(e) => handleModuleChange(Number(e.target.value))}
-                        className="w-full rounded-xl bg-white border border-indigo-300 px-3.5 py-2.5 text-xs font-bold text-indigo-950 focus:outline-none focus:border-indigo-600 shadow-2xs cursor-pointer"
-                      >
-                        {currentSyllabus.modules.map((m, mIdx) => {
-                          const count = m.topics.filter((t) => selectedTopics.includes(t)).length;
-                          const full = count === m.topics.length && m.topics.length > 0;
-                          return (
-                            <option key={mIdx} value={mIdx}>
-                              MODULE {m.module_number} &gt;&gt; {m.title} ({m.topics.length} Topics){count > 0 ? ` ── [${count}/${m.topics.length} Selected ${full ? '✓ FULL MODULE' : ''}]` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    {activeModule && (
-                      <div className="space-y-2 bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
-                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-                          <span className="text-[11px] font-bold text-slate-700">
-                            2. Check Topics in <strong>Module {activeModule.module_number}: {activeModule.title}</strong>
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleSelectAllInModule}
-                              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
-                            >
-                              Select All in Module
-                            </button>
-                            <span className="text-slate-300">|</span>
-                            <button
-                              type="button"
-                              onClick={handleClearModuleTopics}
-                              className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline cursor-pointer"
-                            >
-                              Clear Module
-                            </button>
-                            {selectedTopics.length > 0 && (
-                              <>
-                                <span className="text-slate-300">|</span>
-                                <button
-                                  type="button"
-                                  onClick={handleClearAllSelection}
-                                  className="text-[10px] font-bold text-rose-600 hover:text-rose-800 underline cursor-pointer"
-                                >
-                                  Clear All
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                          {activeModule.topics.map((topic, tIdx) => {
-                            const isChecked = selectedTopics.includes(topic);
-                            return (
-                              <button
-                                key={tIdx}
-                                type="button"
-                                onClick={() => handleToggleTopic(topic)}
-                                className={`p-2.5 rounded-xl border text-left flex items-start gap-2.5 transition-all cursor-pointer ${
-                                  isChecked
-                                    ? 'bg-indigo-50/90 border-indigo-400 text-indigo-950 shadow-2xs ring-1 ring-indigo-400'
-                                    : 'bg-slate-50/50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                                }`}
-                              >
-                                <div className="mt-0.5 shrink-0">
-                                  {isChecked ? (
-                                    <CheckSquare className="h-4 w-4 text-indigo-600" />
-                                  ) : (
-                                    <Square className="h-4 w-4 text-slate-400" />
-                                  )}
-                                </div>
-                                <span className="text-xs font-semibold leading-tight">{topic}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-indigo-900 uppercase mb-1">
-                        3. Add Practical / Lab Notes (Optional):
-                      </label>
-                      <input
-                        type="text"
-                        value={customNotes}
-                        onChange={(e) => handleCustomNotesChange(e.target.value)}
-                        placeholder="e.g. Conducted hands-on query lab & solved student doubt queries..."
-                        className="w-full rounded-xl bg-white border border-indigo-200 px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-600"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <BookOpen className="h-3.5 w-3.5 text-indigo-600" /> TOPIC COVERED (FINAL BROADCAST PREVIEW) *
-                </span>
-                <span className="text-[10px] text-slate-400 font-normal">Auto-filled from syllabus, fully editable</span>
+                <span>Select Batch</span>
+                <span className="text-rose-500">*</span>
               </label>
+
+              {batches.length === 0 ? (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2.5">
+                  <div className="h-7 w-7 rounded-lg bg-amber-200/80 flex items-center justify-center text-amber-800 shrink-0 font-bold">!</div>
+                  <span>No batches assigned to your profile yet. Please contact Institute Admin.</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <select
+                      value={selectedBatchId}
+                      onChange={(e) => setSelectedBatchId(e.target.value)}
+                      required
+                      className="w-full rounded-xl border border-slate-300/90 bg-white px-4 py-3 text-slate-900 font-bold text-sm focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all cursor-pointer shadow-xs"
+                    >
+                      {batches.map((batch) => (
+                        <option key={batch.id} value={batch.id}>
+                          🏷️ {batch.name} — ({batch.used_hours || 0}/{batch.total_hours} hrs completed)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50/60 border border-emerald-200/80 text-xs text-emerald-950 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <div className="h-6 w-6 rounded-md bg-[#25D366] text-white flex items-center justify-center shadow-xs">
+                        <MessageSquare className="h-3.5 w-3.5" />
+                      </div>
+                      <span>
+                        Target WhatsApp Group: <strong className="text-emerald-900 font-extrabold">{currentBatchObj?.whatsapp_group_name || `${currentBatchObj?.name || 'Batch'} WhatsApp Group`}</strong>
+                      </span>
+                    </div>
+
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-200/90 text-emerald-950 font-extrabold text-[10px] uppercase tracking-wide">
+                      <span className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse" /> Direct Broadcast Active
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: Topic Covered Today */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+                <span className="h-5 w-1.5 rounded-full bg-indigo-600" />
+                <span>Step 3: Topic Covered Today</span>
+                <span className="text-rose-500">*</span>
+              </div>
+              <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200/60">
+                💬 Sent directly to WhatsApp group
+              </span>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-3">
+              {/* Quick Template Suggestion Chips */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">Quick Insert:</span>
+                {[
+                  'Completed Data Types, Variables & Typecasting',
+                  'Conditional Statements (If-Else & Nested Loops)',
+                  'Object-Oriented Programming (Classes & Objects)',
+                  'Live Project Implementation & Hands-on Coding',
+                  'Doubt Solving & Code Debugging Session',
+                ].map((tmpl, tIdx) => (
+                  <button
+                    key={tIdx}
+                    type="button"
+                    onClick={() => setTopicCovered((prev) => (prev ? `${prev}\n• ${tmpl}` : tmpl))}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/60 text-slate-700 hover:text-indigo-900 font-semibold text-[11px] transition-all cursor-pointer shadow-2xs active:scale-95"
+                  >
+                    + {tmpl.split(' ')[0]} {tmpl.split(' ')[1]}
+                  </button>
+                ))}
+              </div>
+
               <textarea
                 required
                 rows={4}
                 value={topicCovered}
                 onChange={(e) => setTopicCovered(e.target.value)}
-                placeholder="Topics selected above will automatically appear here formatted with bullet points..."
-                className="w-full rounded-xl border border-slate-300 bg-white p-3.5 text-slate-800 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 focus:outline-none transition-all resize-none font-mono text-xs leading-relaxed"
+                placeholder="e.g. Today we completed Data Types, Variables, If-Else conditions, and practiced hands-on coding exercises with students..."
+                className="w-full rounded-2xl border border-slate-300/90 bg-white p-4 text-slate-900 text-sm leading-relaxed font-semibold focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all resize-none shadow-inner placeholder:font-normal placeholder:text-slate-400"
               />
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                <span>Provide clear bullet points so students can review their syllabus topics.</span>
+                <span className="font-mono font-bold text-slate-500">{topicCovered.length} characters</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Document & Notes Upload Studio */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
+                <span className="h-5 w-1.5 rounded-full bg-indigo-600" />
+                <span>Step 4: Attach Notes / Code Document (Optional)</span>
+              </div>
+              <span className="text-[11px] font-bold text-slate-400">PDF, PPT, Word, ZIP, Images</span>
             </div>
 
-            <div className="space-y-3 pt-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-200">
-                <div className="flex items-center gap-2">
-                  <div className="h-7 w-7 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                    <Users className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-extrabold text-slate-900 leading-tight">
-                      Student Attendance & Leaves ({students.length} Students)
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Mark students as Present, Absent, or on Leave with reason
-                    </p>
-                  </div>
-                </div>
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/40 via-purple-50/20 to-white border border-indigo-200/80 space-y-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip"
+                onChange={handleFileUpload}
+                className="hidden"
+                id="sessionDocumentUpload"
+              />
 
-                <div className="flex items-center gap-2">
+              {!attachedFile ? (
+                <label
+                  htmlFor="sessionDocumentUpload"
+                  className="flex flex-col items-center justify-center p-6 sm:p-8 border-2 border-dashed border-indigo-300/80 hover:border-indigo-600 rounded-2xl bg-white hover:bg-indigo-50/40 transition-all cursor-pointer text-center group shadow-xs hover:shadow-md"
+                >
+                  <div className="h-14 w-14 rounded-2xl bg-indigo-100/70 text-indigo-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-2.5">
+                    <UploadCloud className="h-7 w-7" />
+                  </div>
+                  <span className="text-sm font-extrabold text-indigo-950 group-hover:text-indigo-600 transition-colors">
+                    Click to Browse or Drop Class Document / Notes
+                  </span>
+                  <p className="text-xs text-slate-500 max-w-md mt-1">
+                    Attach notes, PDFs, or assignments — automatically sent directly into the batch WhatsApp group alongside the session message!
+                  </p>
+                  <div className="flex items-center gap-2 mt-3 text-[10px] font-extrabold text-indigo-700 bg-indigo-100/70 px-3 py-1 rounded-full">
+                    <span>PDF</span> • <span>DOCX</span> • <span>PPT</span> • <span>ZIP</span> • <span>Max 15 MB</span>
+                  </div>
+                </label>
+              ) : (
+                <div className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-indigo-300 shadow-md">
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                      <FileText className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-extrabold text-slate-900 truncate">
+                        {attachedFile.fileName}
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                        <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                          {attachedFile.sizeFormatted}
+                        </span>
+                        <span>• Ready to broadcast to WhatsApp</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={markAllPresent}
-                    className="px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold text-xs border border-emerald-200 transition-colors cursor-pointer"
+                    onClick={handleRemoveFile}
+                    className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-200 transition-all cursor-pointer hover:scale-105 active:scale-95 shrink-0"
+                    title="Remove Attached File"
                   >
-                    ✓ Mark All Present
+                    <Trash2 className="h-5 w-5" />
                   </button>
                 </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 5: Student Attendance & Leaves */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="h-8 w-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Users className="h-4.5 w-4.5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight">
+                    Batch Student Attendance & Leaves ({students.length} Total)
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Mark each enrolled student as Present, Absent, or Leave
+                  </p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-                <div className="p-2 rounded-xl bg-emerald-100/60 border border-emerald-200 text-emerald-900">
-                  <div className="text-[10px] font-bold uppercase tracking-wider">Present</div>
-                  <div className="text-lg font-black">{presentCount} <span className="text-xs font-semibold text-emerald-700">({attendancePct}%)</span></div>
-                </div>
-                <div className="p-2 rounded-xl bg-rose-100/60 border border-rose-200 text-rose-900">
-                  <div className="text-[10px] font-bold uppercase tracking-wider">Absent</div>
-                  <div className="text-lg font-black">{absentCount}</div>
-                </div>
-                <div className="p-2 rounded-xl bg-amber-100/60 border border-amber-200 text-amber-900">
-                  <div className="text-[10px] font-bold uppercase tracking-wider">On Leave</div>
-                  <div className="text-lg font-black">{leaveCount}</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={markAllPresent}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-sm transition-all cursor-pointer active:scale-95 flex items-center gap-1.5"
+                >
+                  <UserCheck className="h-4 w-4" /> Mark All Present
+                </button>
+              </div>
+            </div>
+
+            {/* Attendance Analytics Mini-HUD */}
+            <div className="grid grid-cols-3 gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200/90 text-center shadow-2xs">
+              <div className="p-3 rounded-xl bg-white border border-emerald-300 text-emerald-900 shadow-xs">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700">Present</div>
+                <div className="text-xl sm:text-2xl font-black text-emerald-600">
+                  {presentCount} <span className="text-xs font-bold text-emerald-700">({attendancePct}%)</span>
                 </div>
               </div>
+              <div className="p-3 rounded-xl bg-white border border-rose-300 text-rose-900 shadow-xs">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-rose-700">Absent</div>
+                <div className="text-xl sm:text-2xl font-black text-rose-600">{absentCount}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-white border border-amber-300 text-amber-900 shadow-xs">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">On Leave</div>
+                <div className="text-xl sm:text-2xl font-black text-amber-600">{leaveCount}</div>
+              </div>
+            </div>
 
-              {loadingStudents ? (
-                <div className="p-8 text-center text-xs text-slate-400 font-medium">
-                  Loading students for this batch...
-                </div>
-              ) : students.length === 0 ? (
-                <div className="p-6 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
-                  No students found in this batch.
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                  {students.map((student, sIdx) => {
-                    const current = attendanceState[student.id] || { status: 'present', reason: '' };
-                    return (
-                      <div
-                        key={student.id}
-                        className={`p-3 rounded-2xl border transition-all ${
-                          current.status === 'present'
-                            ? 'bg-white border-slate-200'
-                            : current.status === 'absent'
-                            ? 'bg-rose-50/50 border-rose-200'
-                            : 'bg-amber-50/50 border-amber-200'
-                        }`}
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="h-7 w-7 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs flex items-center justify-center shrink-0">
-                              {sIdx + 1}
-                            </div>
-                            <div>
-                              <div className="font-extrabold text-slate-900 text-xs">{student.name}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">{student.phone || 'No phone'}</div>
-                            </div>
+            {loadingStudents ? (
+              <div className="p-10 text-center text-xs text-slate-400 font-medium bg-slate-50 rounded-2xl border border-slate-200">
+                Loading students for this batch...
+              </div>
+            ) : students.length === 0 ? (
+              <div className="p-8 rounded-2xl border-2 border-dashed border-slate-200 text-center text-xs text-slate-400 bg-slate-50">
+                No students enrolled in this batch yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
+                {students.map((student, sIdx) => {
+                  const current = attendanceState[student.id] || { status: 'present', reason: '' };
+                  return (
+                    <div
+                      key={student.id}
+                      className={`p-3.5 rounded-2xl border transition-all shadow-2xs ${
+                        current.status === 'present'
+                          ? 'bg-white border-slate-200/90'
+                          : current.status === 'absent'
+                          ? 'bg-rose-50/60 border-rose-200'
+                          : 'bg-amber-50/60 border-amber-200'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-8 w-8 rounded-xl bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 border border-slate-200">
+                            {sIdx + 1}
                           </div>
-
-                          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 border border-slate-200 self-start sm:self-auto">
-                            <button
-                              type="button"
-                              onClick={() => handleStatusChange(student.id, 'present')}
-                              className={`px-3 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer flex items-center gap-1 ${
-                                current.status === 'present'
-                                  ? 'bg-emerald-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              <UserCheck className="h-3 w-3" />
-                              <span>Present</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleStatusChange(student.id, 'absent')}
-                              className={`px-3 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer flex items-center gap-1 ${
-                                current.status === 'absent'
-                                  ? 'bg-rose-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              <UserX className="h-3 w-3" />
-                              <span>Absent</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleStatusChange(student.id, 'leave')}
-                              className={`px-3 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer flex items-center gap-1 ${
-                                current.status === 'leave'
-                                  ? 'bg-amber-600 text-white shadow-xs'
-                                  : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              <Plane className="h-3 w-3" />
-                              <span>Leave</span>
-                            </button>
+                          <div>
+                            <div className="font-extrabold text-slate-900 text-xs sm:text-sm">{student.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{student.phone || 'No phone number'}</div>
                           </div>
                         </div>
 
-                        {current.status === 'leave' && (
-                          <div className="mt-2.5 pt-2 border-t border-amber-200/80">
-                            <input
-                              type="text"
-                              value={current.reason}
-                              onChange={(e) => handleReasonChange(student.id, e.target.value)}
-                              placeholder="Reason for leave (e.g. High fever, College Exam, Family function)..."
-                              className="w-full px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-600"
-                            />
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100/90 border border-slate-200 self-start sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(student.id, 'present')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              current.status === 'present'
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <UserCheck className="h-3.5 w-3.5" />
+                            <span>Present</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(student.id, 'absent')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              current.status === 'absent'
+                                ? 'bg-rose-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <UserX className="h-3.5 w-3.5" />
+                            <span>Absent</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(student.id, 'leave')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              current.status === 'leave'
+                                ? 'bg-amber-600 text-white shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <Plane className="h-3.5 w-3.5" />
+                            <span>Leave</span>
+                          </button>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
 
-            <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="autoSendWhatsApp"
-                checked={autoSendWhatsApp}
-                onChange={(e) => setAutoSendWhatsApp(e.target.checked)}
-                className="h-4 w-4 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-              />
-              <label htmlFor="autoSendWhatsApp" className="text-xs font-bold text-emerald-950 cursor-pointer select-none">
-                ⚡ Automatically Broadcast Topics & Student Attendance to WhatsApp Group
-              </label>
-            </div>
+                      {current.status === 'leave' && (
+                        <div className="mt-3 pt-2.5 border-t border-amber-200/80">
+                          <input
+                            type="text"
+                            value={current.reason}
+                            onChange={(e) => handleReasonChange(student.id, e.target.value)}
+                            placeholder="Reason for leave (e.g. High fever, College Exam, Family function)..."
+                            className="w-full px-3.5 py-2 rounded-xl bg-white border border-amber-300 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-600 font-medium"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-2xl bg-gradient-to-r from-[#667eea] via-indigo-600 to-[#764ba2] hover:opacity-95 text-white font-extrabold py-3.5 text-sm shadow-xl shadow-indigo-500/25 transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <span>Broadcasting Session & Attendance to WhatsApp...</span>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4" /> Save Session & Broadcast to WhatsApp
-                </>
-              )}
-            </button>
-          </form>
-        </div>
+          {/* Broadcast confirmation checkbox */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-300/80 flex items-center gap-3 shadow-xs">
+            <input
+              type="checkbox"
+              id="autoSendWhatsApp"
+              checked={autoSendWhatsApp}
+              onChange={(e) => setAutoSendWhatsApp(e.target.checked)}
+              className="h-5 w-5 rounded-md border-emerald-400 text-emerald-600 focus:ring-emerald-500 cursor-pointer accent-emerald-600"
+            />
+            <label htmlFor="autoSendWhatsApp" className="text-xs sm:text-sm font-extrabold text-emerald-950 cursor-pointer select-none">
+              ⚡ Automatically Broadcast Session Topic & Attached Document to WhatsApp Group
+            </label>
+          </div>
+
+          {/* Primary Action Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-purple-600 hover:opacity-95 active:scale-[0.99] text-white font-extrabold py-4 text-sm sm:text-base shadow-xl shadow-indigo-500/25 transition-all cursor-pointer flex items-center justify-center gap-2.5"
+          >
+            {loading ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving Session & Broadcasting to WhatsApp Group...
+              </span>
+            ) : (
+              <>
+                <CheckCircle2 className="h-5 w-5" /> Save Session & Broadcast to WhatsApp
+              </>
+            )}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

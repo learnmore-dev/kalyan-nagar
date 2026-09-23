@@ -422,7 +422,9 @@ const server = http.createServer(async (req, res) => {
   // POST /send-message
   if (req.method === 'POST' && url.pathname === '/send-message') {
     const body = await getBody();
-    const { target, text } = body;
+    const { target, text, document, fileName, mimeType, image } = body;
+
+    console.log(`📨 /send-message received for target "${target}". hasDoc: ${!!document}, fileName: ${fileName || 'none'}, textLen: ${text?.length || 0}`);
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -441,15 +443,46 @@ const server = http.createServer(async (req, res) => {
         jid = `${clean}@s.whatsapp.net`;
       }
 
-      const sendPromise = sock.sendMessage(jid, { text });
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('WhatsApp message send timeout (8s)')), 8000)
-      );
+      let result;
 
-      const result = await Promise.race([sendPromise, timeoutPromise]);
+      if (document) {
+        const base64Data = String(document).replace(/^data:.*?;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        console.log(`📎 Sending document to ${jid}: ${fileName || 'file.pdf'} (${buffer.length} bytes)`);
+        
+        // 1. Send the text message if present
+        if (text && text.trim()) {
+          try {
+            await sock.sendMessage(jid, { text: text.trim() });
+          } catch (textErr) {
+            console.warn('Text message send before doc error:', textErr.message);
+          }
+        }
+
+        // 2. Send the document file
+        result = await sock.sendMessage(jid, {
+          document: buffer,
+          mimetype: mimeType || 'application/pdf',
+          fileName: fileName || 'Topic-Notes.pdf',
+        });
+        console.log(`✅ Document "${fileName}" sent successfully to ${jid}!`);
+      } else if (image) {
+        const base64Data = String(image).replace(/^data:.*?;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        result = await sock.sendMessage(jid, {
+          image: buffer,
+          caption: text || undefined,
+        });
+      } else {
+        result = await sock.sendMessage(jid, {
+          text: text || '',
+        });
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, result }));
     } catch (err) {
+      console.error('❌ Failed to send WhatsApp message/doc:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }

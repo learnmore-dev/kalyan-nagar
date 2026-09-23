@@ -7,14 +7,27 @@ const BAILEYS_URLS = [
   'http://localhost:5001',
 ];
 
-async function callBaileysSend(target: string, text: string, withLogo = false): Promise<boolean> {
+async function callBaileysSend(
+  target: string,
+  text: string,
+  withLogo = false,
+  attachment?: { document?: string; fileName?: string; mimeType?: string; image?: string }
+): Promise<boolean> {
   if (!target) return false;
   for (const baseUrl of BAILEYS_URLS) {
     try {
       const res = await fetch(`${baseUrl}/send-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target, text, withLogo }),
+        body: JSON.stringify({
+          target,
+          text,
+          withLogo,
+          document: attachment?.document,
+          fileName: attachment?.fileName,
+          mimeType: attachment?.mimeType,
+          image: attachment?.image,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -518,6 +531,79 @@ class WhatsAppService {
     reason: string;
   }): Promise<{ totalNotified: number }> {
     return { totalNotified: 0 };
+  }
+
+  public async sendJoinClassNotice(batch: Batch): Promise<{ success: boolean; messageText: string; deliveredTo?: string }> {
+    const text = 'hi guys please join class';
+    let targetJid = batch.whatsapp_group_id;
+
+    if (!targetJid || !targetJid.includes('@g.us')) {
+      const liveGroupJid = await findGroupJidByName(batch.whatsapp_group_name || batch.name);
+      if (liveGroupJid) targetJid = liveGroupJid;
+    }
+
+    if (!targetJid) {
+      targetJid = batch.whatsapp_group_name || batch.name;
+    }
+
+    let sent = false;
+    if (targetJid) {
+      try {
+        sent = await callBaileysSend(targetJid, text, false);
+      } catch {}
+    }
+
+    if (sent) {
+      this.botState.totalMessagesDelivered += 1;
+    }
+
+    return {
+      success: sent,
+      messageText: text,
+      deliveredTo: sent ? (batch.whatsapp_group_name || batch.name) : undefined,
+    };
+  }
+
+  public async sendBatchTopicAndDocument(params: {
+    batch: Batch;
+    topicCovered: string;
+    date: string;
+    attachment?: { document?: string; fileName?: string; mimeType?: string };
+  }): Promise<{ success: boolean; deliveredTo?: string; messageText: string }> {
+    const formattedMessage = [
+      `🏷️ *Batch:* ${params.batch.name}`,
+      `📅 *Date:* ${params.date}`,
+      `━━━━━━━━━━━━━━━━━━━━`,
+      `📌 *Topic Covered Today:*`,
+      `${params.topicCovered.trim()}`,
+    ].join('\n');
+
+    let targetJid = params.batch.whatsapp_group_id;
+    if (!targetJid || !targetJid.includes('@g.us')) {
+      const liveGroupJid = await findGroupJidByName(params.batch.whatsapp_group_name || params.batch.name);
+      if (liveGroupJid) targetJid = liveGroupJid;
+    }
+
+    if (!targetJid) {
+      targetJid = params.batch.whatsapp_group_name || params.batch.name;
+    }
+
+    let sent = false;
+    if (targetJid) {
+      try {
+        sent = await callBaileysSend(targetJid, formattedMessage, false, params.attachment);
+      } catch {}
+    }
+
+    if (sent) {
+      this.botState.totalMessagesDelivered += 1;
+    }
+
+    return {
+      success: sent,
+      deliveredTo: sent ? (params.batch.whatsapp_group_name || params.batch.name) : undefined,
+      messageText: formattedMessage,
+    };
   }
 }
 

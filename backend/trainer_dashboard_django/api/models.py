@@ -334,3 +334,52 @@ class WhatsAppGroup(models.Model):
     def __str__(self):
         return f"{self.name} ({self.id})"
 
+
+class SupportThread(models.Model):
+    STATUS_CHOICES = (
+        ('open', 'Open'),
+        ('in_progress', 'In Progress'),
+        ('resolved', 'Resolved'),
+    )
+    THREAD_TYPE_CHOICES = (
+        ('admin_support', 'Admin Support'),
+        ('direct_message', 'Direct Message'),
+        ('faculty_lounge', 'Faculty Lounge'),
+    )
+
+    id = models.CharField(max_length=100, primary_key=True, default=uuid.uuid4)
+    thread_type = models.CharField(max_length=30, choices=THREAD_TYPE_CHOICES, default='admin_support')
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='support_threads')
+    user_name = models.CharField(max_length=150)
+    user_role = models.CharField(max_length=50, default='trainer')
+    recipient = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='received_threads')
+    recipient_name = models.CharField(max_length=150, blank=True, null=True)
+    subject = models.CharField(max_length=255, default='Doubt / Support Request')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    unread_admin_count = models.IntegerField(default=0)
+    unread_user_count = models.IntegerField(default=0)
+    unread_recipient_count = models.IntegerField(default=0)
+    last_message = models.TextField(blank=True, null=True)
+    last_message_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.thread_type} ({self.user_name} -> {self.recipient_name or 'Admin'})"
+
+
+class SupportMessage(models.Model):
+    id = models.CharField(max_length=100, primary_key=True, default=uuid.uuid4)
+    thread = models.ForeignKey(SupportThread, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True)
+    sender_name = models.CharField(max_length=150)
+    sender_role = models.CharField(max_length=50, default='trainer') # 'trainer' or 'admin'
+    message = models.TextField(blank=True, default='')
+    attachment_name = models.CharField(max_length=255, blank=True, null=True)
+    attachment_type = models.CharField(max_length=100, blank=True, null=True)
+    attachment_data = models.TextField(blank=True, null=True) # Base64 Data URL
+    attachment_size = models.CharField(max_length=50, blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"Msg from {self.sender_name} at {self.created_at}"
+

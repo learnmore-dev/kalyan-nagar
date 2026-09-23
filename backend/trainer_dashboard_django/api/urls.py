@@ -19,6 +19,11 @@ from .views import (
     trainer_timeline_view,
     topics_coverage_view,
     cron_12pm_cutoff_view,
+    support_threads_view,
+    support_thread_messages_view,
+    support_send_message_view,
+    support_update_status_view,
+    support_contacts_view,
 )
 
 router = DefaultRouter()
@@ -51,6 +56,16 @@ urlpatterns = [
     path('cron/12pm-cutoff/', cron_12pm_cutoff_view, name='cron-12pm-cutoff-slash'),
     path('trainer-timeline/', trainer_timeline_view, name='trainer-timeline'),
     path('trainer-timeline', trainer_timeline_view, name='trainer-timeline-noslash'),
+    path('support/contacts', support_contacts_view, name='support-contacts-noslash'),
+    path('support/contacts/', support_contacts_view, name='support-contacts'),
+    path('support/threads', support_threads_view, name='support-threads-noslash'),
+    path('support/threads/', support_threads_view, name='support-threads'),
+    path('support/threads/<str:thread_id>/messages', support_thread_messages_view, name='support-messages-noslash'),
+    path('support/threads/<str:thread_id>/messages/', support_thread_messages_view, name='support-messages'),
+    path('support/threads/<str:thread_id>/status', support_update_status_view, name='support-status-noslash'),
+    path('support/threads/<str:thread_id>/status/', support_update_status_view, name='support-status'),
+    path('support/messages', support_send_message_view, name='support-send-noslash'),
+    path('support/messages/', support_send_message_view, name='support-send'),
     path('', include(router.urls)),
 ]
 

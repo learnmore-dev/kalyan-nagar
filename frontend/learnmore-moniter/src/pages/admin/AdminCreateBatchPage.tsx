@@ -9,6 +9,7 @@ export default function AdminCreateBatchPage() {
   const [trainers, setTrainers] = useState<User[]>([]);
   const [courses, setCourses] = useState<CourseSyllabus[]>(INSTITUTE_COURSES);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('course_sql');
+  const [courseName, setCourseName] = useState('SQL');
 
   const [name, setName] = useState('SQL & Database Engineering — Morning Batch');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
@@ -208,7 +209,7 @@ export default function AdminCreateBatchPage() {
           name: finalSyncName,
           whatsapp_group_name: finalSyncName,
           course_id: selectedCourseId,
-          course_name: selectedCourseObj?.name || 'Standard Course',
+          course_name: courseName.trim() || selectedCourseObj?.name || 'Standard Course',
           start_date: startDate,
           total_hours: Number(totalHours),
           total_students: validStudents.length > 0 ? validStudents.length : 12,
@@ -316,35 +317,19 @@ export default function AdminCreateBatchPage() {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6 text-xs sm:text-sm">
-          {/* 1. Course Category & Syllabus Selector */}
-          <div className="space-y-2 p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200">
-            <label className="block font-bold text-indigo-950 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-              <BookOpen className="h-4 w-4 text-indigo-600" /> SELECT OFFICIAL COURSE SYLLABUS *
+          {/* 1. Course Name (Manual) */}
+          <div className="space-y-1.5">
+            <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <BookOpen className="h-4 w-4 text-indigo-600" /> COURSE NAME *
             </label>
-            <select
-              value={selectedCourseId}
-              onChange={(e) => handleCourseChange(e.target.value)}
-              className="w-full rounded-xl border border-indigo-300 bg-white px-3.5 py-2.5 text-slate-900 font-bold focus:border-indigo-600 focus:outline-none transition-all cursor-pointer"
-            >
-              {Array.from(new Set(courses.map((c) => c.category))).map((cat) => (
-                <optgroup key={cat} label={`📂 ${cat}`}>
-                  {courses
-                    .filter((c) => c.category === cat)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        🎓 {c.name} ({c.modules.length} Modules • {c.default_hours} hrs)
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </select>
-
-            {selectedCourseObj && (
-              <div className="flex items-center justify-between text-[11px] text-indigo-800 pt-1">
-                <span>Category: <strong>{selectedCourseObj.category}</strong></span>
-                <span>Curriculum: <strong>{selectedCourseObj.modules.length} Detailed Modules</strong></span>
-              </div>
-            )}
+            <input
+              type="text"
+              required
+              placeholder="e.g. SQL, Python Full Stack, Power BI, Advanced Excel"
+              value={courseName}
+              onChange={(e) => setCourseName(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+            />
           </div>
 
           {/* Batch Name */}

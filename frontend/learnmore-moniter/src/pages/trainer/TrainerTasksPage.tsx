@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Plus,
   Play,
+  Pause,
   CheckSquare,
   Sparkles,
   BarChart3,
@@ -19,7 +20,11 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Eye
+  Eye,
+  Quote,
+  Flame,
+  Zap,
+  Target
 } from 'lucide-react';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -31,6 +36,45 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: 'Other Work',
 };
 
+/* ── Deep Work & Sprint Execution Quotes with HD Tech Backgrounds ─────────── */
+const TASK_EXECUTION_QUOTES = [
+  {
+    quote: "Deep work is the ability to focus without distraction on a cognitively demanding task. It makes you produce at an elite level.",
+    author: "Cal Newport",
+    role: "Author of Deep Work & CS Professor",
+    tag: "⚡ Deep Work Mastery",
+    bgImage: "https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "You do not rise to the level of your goals. You fall to the level of your systems. Execute daily sprints consistently.",
+    author: "James Clear",
+    role: "Author of Atomic Habits",
+    tag: "🎯 Systems & Discipline",
+    bgImage: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Efficiency is doing things right; effectiveness is doing the right things. Track every minute spent delivering value.",
+    author: "Peter Drucker",
+    role: "Management Consultant & Educator",
+    tag: "🔥 High-Leverage Impact",
+    bgImage: "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Focus on the task right in front of you as if it were the last thing you were doing in your life.",
+    author: "Marcus Aurelius",
+    role: "Stoic Philosopher & Roman Emperor",
+    tag: "💎 Relentless Focus",
+    bgImage: "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Small daily improvements over time lead to stunning results. Finish every pending task with passion.",
+    author: "Robin Sharma",
+    role: "Leadership & Performance Mentor",
+    tag: "🚀 Sprint Momentum",
+    bgImage: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1600&auto=format&fit=crop&q=80",
+  },
+];
+
 const PAGE_SIZE = 5;
 
 export default function TrainerTasksPage() {
@@ -38,6 +82,18 @@ export default function TrainerTasksPage() {
   const [tasks, setTasks] = useState<TaskLog[]>([]);
   const [activeTask, setActiveTask] = useState<TaskLog | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
+
+  // Quotes Carousel State
+  const [quoteIdx, setQuoteIdx] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+    const timer = setInterval(() => {
+      setQuoteIdx((prev) => (prev + 1) % TASK_EXECUTION_QUOTES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [isAutoPlaying]);
 
   // Pagination & Filtering State
   const [currentPage, setCurrentPage] = useState(1);
@@ -298,32 +354,123 @@ export default function TrainerTasksPage() {
 
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-      {/* 1. Top Hero Banner */}
-      <div className="rounded-3xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
-        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-white/10 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute left-1/3 -top-10 w-48 h-48 bg-purple-400/20 rounded-full blur-xl pointer-events-none" />
+      {/* ── Dynamic Deep Work & Sprint Execution Hero Banner ───────────────────────────────── */}
+      <div className="relative rounded-3xl p-6 sm:p-8 lg:p-9 text-white overflow-hidden shadow-2xl border border-amber-500/30 min-h-[260px] bg-slate-950">
+        {/* Dynamic Rotating Background Images with Smooth Crossfade */}
+        {TASK_EXECUTION_QUOTES.map((item, idx) => (
+          <div
+            key={idx}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              idx === quoteIdx ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
+            }`}
+            style={{
+              backgroundImage: `linear-gradient(135deg, rgba(194, 65, 12, 0.94) 0%, rgba(124, 45, 18, 0.92) 50%, rgba(15, 23, 42, 0.93) 100%), url('${item.bgImage}')`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transitionProperty: 'opacity, transform',
+              transitionDuration: '1000ms',
+            }}
+          />
+        ))}
 
-        <div className="flex items-start gap-4 z-10">
-          <div className="h-14 w-14 rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shrink-0 shadow-md">
-            <FileText className="h-7 w-7 text-white" />
-          </div>
-          <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
-              Tasks & Syllabus
+        {/* Ambient Glowing Orbs */}
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 right-10 w-64 h-64 bg-orange-600/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          {/* Left Column: Title & Info */}
+          <div className="space-y-3 max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-amber-400/20 text-amber-200 border border-amber-400/30 backdrop-blur-md">
+                <Flame className="w-3.5 h-3.5 text-amber-300" /> Daily Sprint & Execution Hub
+              </span>
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-white/10 text-white border border-white/15">
+                <Target className="h-3.5 w-3.5 text-amber-400" /> Focus Tracker
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight text-white drop-shadow-sm">
+              Trainer Task & Sprint Log
             </h1>
-            <p className="text-xs sm:text-sm text-blue-100 max-w-xl font-medium">
-              Access your assigned tasks, course syllabus and study materials. Complete your tasks and keep track of your progress.
-            </p>
-          </div>
-        </div>
 
-        <div className="z-10 flex items-center gap-4 bg-white/10 backdrop-blur-md border border-white/20 px-5 py-3 rounded-2xl shrink-0">
-          <div className="text-right space-y-0.5">
-            <p className="text-xs italic font-serif text-purple-200">"Small steps</p>
-            <p className="text-sm font-extrabold text-white">create big results"</p>
+            <p className="text-xs sm:text-sm text-amber-100/90 leading-relaxed font-normal">
+              Track real-time activity timers, doubt-solving sessions, evaluation milestones, and sprint progress with complete focus.
+            </p>
+
+            <div className="flex flex-wrap gap-2.5 pt-1">
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center gap-2 px-4.5 py-2.5 rounded-xl bg-white text-amber-950 font-extrabold text-xs shadow-md hover:bg-amber-50 transition-all cursor-pointer active:scale-95"
+              >
+                <Plus className="h-4 w-4 text-amber-600" /> Add New Task
+              </button>
+            </div>
           </div>
-          <div className="h-10 w-10 rounded-xl bg-white/20 flex items-center justify-center text-white text-lg">
-            📚
+
+          {/* Right Column: Interactive Motivational Quotes Carousel */}
+          <div className="w-full lg:w-[480px] bg-slate-950/75 backdrop-blur-xl border border-amber-500/30 rounded-2xl p-5 space-y-4 shadow-xl relative overflow-hidden group">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/30 border border-amber-400/30 text-[10px] font-extrabold text-amber-200 uppercase tracking-wider">
+                {TASK_EXECUTION_QUOTES[quoteIdx].tag}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title={isAutoPlaying ? 'Pause rotation' : 'Play rotation'}
+                >
+                  {isAutoPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) => (prev - 1 + TASK_EXECUTION_QUOTES.length) % TASK_EXECUTION_QUOTES.length)
+                  }
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Previous quote"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQuoteIdx((prev) => (prev + 1) % TASK_EXECUTION_QUOTES.length)}
+                  className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Next quote"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-[72px] flex items-start gap-3">
+              <Quote className="h-5 w-5 text-amber-400 shrink-0 mt-0.5 opacity-80" />
+              <p className="text-xs sm:text-sm font-medium text-slate-100 italic leading-snug">
+                "{TASK_EXECUTION_QUOTES[quoteIdx].quote}"
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <div>
+                <div className="text-xs font-bold text-white">{TASK_EXECUTION_QUOTES[quoteIdx].author}</div>
+                <div className="text-[10px] text-amber-300">{TASK_EXECUTION_QUOTES[quoteIdx].role}</div>
+              </div>
+
+              {/* Step indicator dots */}
+              <div className="flex items-center gap-1">
+                {TASK_EXECUTION_QUOTES.map((_, dotIdx) => (
+                  <button
+                    key={dotIdx}
+                    type="button"
+                    onClick={() => setQuoteIdx(dotIdx)}
+                    className={`h-1.5 rounded-full transition-all ${
+                      dotIdx === quoteIdx ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/30 hover:bg-white/50'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -545,9 +692,11 @@ export default function TrainerTasksPage() {
 
                     {/* Pill Badges */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-200/60">
-                        Batch: LMT-KN-SEP-OFF-SQL-10AM
-                      </span>
+                      {task.batch_name && (
+                        <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[11px] font-bold border border-blue-200/60">
+                          Batch: {task.batch_name}
+                        </span>
+                      )}
                       <span className="px-3 py-1 rounded-full bg-purple-50 text-purple-700 text-[11px] font-bold border border-purple-200/60">
                         Category: {CATEGORY_LABELS[task.category] || String(task.category || 'other').replace(/_/g, ' ')}
                       </span>
@@ -781,10 +930,12 @@ export default function TrainerTasksPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <div className="text-[10px] text-slate-400 font-extrabold uppercase">Assigned Batch</div>
-                  <div className="font-extrabold text-slate-800">LMT-KN-SEP-OFF-SQL-10AM</div>
-                </div>
+                {viewingTask.batch_name && (
+                  <div>
+                    <div className="text-[10px] text-slate-400 font-extrabold uppercase">Assigned Batch</div>
+                    <div className="font-extrabold text-slate-800">{viewingTask.batch_name}</div>
+                  </div>
+                )}
                 <div>
                   <div className="text-[10px] text-slate-400 font-extrabold uppercase">Duration / Log Time</div>
                   <div className="font-extrabold text-slate-800">{viewingTask.duration_minutes || 45} Minutes</div>

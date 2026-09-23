@@ -1,0 +1,76 @@
+name: Deploy to Production Server
+
+on:
+  push:
+    branches:
+      - main # change to master if your default branch is master
+
+jobs:
+  deploy:
+    name: Deploy to VPS Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Execute Remote SSH Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }} # Optional (if private key is password protected)
+          password: ${{ secrets.SERVER_PASSWORD }} # Optional (if using password instead of SSH key)
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script_stop: true
+          script: |
+            echo "🚀 Starting Deployment on Server..."
+
+            # 1. Navigate to Project Directory
+            cd ${{ secrets.SERVER_APP_DIR || '/var/www/kalyan-nagar' }}
+
+            # 2. Pull Latest Changes from GitHub
+            echo "📥 Pulling latest git changes..."
+            git fetch origin
+            git reset --hard origin/main # or origin/master
+
+            # 3. Setup / Update Django Backend
+            echo "🐍 Updating Django Backend..."
+            cd backend/trainer_dashboard_django
+
+            # Activate python virtual environment if exists
+            if [ -d "venv" ]; then
+              source venv/bin/activate
+            elif [ -d "../venv" ]; then
+              source ../venv/bin/activate
+            elif [ -d "../../venv" ]; then
+              source ../../venv/bin/activate
+            fi
+
+            pip install -r requirements.txt --quiet
+            python manage.py migrate --noinput
+            python manage.py collectstatic --noinput || true
+
+            cd ../..
+
+            # 4. Setup / Build React Frontend
+            echo "⚛️ Building Frontend..."
+            cd frontend/learnmore-moniter
+            npm install --legacy-peer-deps --quiet
+            npm run build
+            cd ../..
+
+            # 5. Restart Services (Gunicorn / Nginx / PM2 / Systemd)
+            echo "🔄 Restarting Services..."
+            if systemctl is-active --quiet gunicorn; then
+              sudo systemctl restart gunicorn
+            elif command -v pm2 &> /dev/null; then
+              pm2 restart all || true
+            fi
+
+            if systemctl is-active --quiet nginx; then
+              sudo systemctl reload nginx
+            fi
+
+            echo "✅ Deployment Completed Successfully!"

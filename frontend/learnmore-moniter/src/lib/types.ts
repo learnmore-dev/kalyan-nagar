@@ -44,6 +44,7 @@ export interface Batch {
   classroom?: string;
   completed_hours?: number;
   code?: string;
+  status?: string;
 }
 
 export interface WhatsAppBroadcastLog {
@@ -164,6 +165,7 @@ export interface TaskLog {
   id: string;
   trainer_id: string;
   trainer_name?: string;
+  batch_name?: string;
   title: string;
   category: TaskCategory;
   start_time: string;

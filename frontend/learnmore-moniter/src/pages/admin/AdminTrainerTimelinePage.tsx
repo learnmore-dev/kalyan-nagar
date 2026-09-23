@@ -16,7 +16,11 @@ import {
   ChevronRight,
   Sparkles,
   CheckCircle2,
-  AlertTriangle
+  AlertTriangle,
+  Package,
+  Layers,
+  TrendingUp,
+  ShieldAlert
 } from 'lucide-react';
 
 interface Block {
@@ -53,6 +57,11 @@ interface TrainerRow {
   total_logged_minutes: number;
   session_count: number;
   task_count: number;
+  active_batch_count?: number;
+  active_batch_names?: string[];
+  utilization_status?: 'optimal' | 'under_utilized' | 'no_batches';
+  utilization_label?: string;
+  is_taking_classes_today?: boolean;
   blocks: Block[];
 }
 
@@ -115,7 +124,7 @@ export default function AdminTrainerTimelinePage() {
   const [loading, setLoading]             = useState(true);
   const [autoRefresh, setAutoRefresh]     = useState(true);
   const [searchTerm, setSearchTerm]       = useState('');
-  const [statusFilter, setStatusFilter]   = useState<'all' | 'in_class' | 'on_task' | 'idle' | 'occupied'>('all');
+  const [statusFilter, setStatusFilter]   = useState<'all' | 'optimal' | 'under_utilized' | 'no_batches' | 'no_class_today' | 'in_class' | 'on_task' | 'idle' | 'occupied'>('all');
   const [tooltip, setTooltip]             = useState<{ block: Block; x: number; y: number } | null>(null);
   const [selectedTrainer, setSelectedTrainer] = useState<TrainerRow | null>(null);
   const [nowMin, setNowMin]               = useState(() => {
@@ -171,6 +180,10 @@ export default function AdminTrainerTimelinePage() {
 
     if (!matchesSearch) return false;
 
+    if (statusFilter === 'optimal') return (t.active_batch_count || 0) >= 5;
+    if (statusFilter === 'under_utilized') return (t.active_batch_count || 0) > 0 && (t.active_batch_count || 0) < 5;
+    if (statusFilter === 'no_batches') return (t.active_batch_count || 0) === 0;
+    if (statusFilter === 'no_class_today') return (t.active_batch_count || 0) > 0 && !t.is_taking_classes_today;
     if (statusFilter === 'in_class') return t.live_status === 'in_class';
     if (statusFilter === 'on_task') return t.live_status === 'on_task';
     if (statusFilter === 'idle') return t.live_status === 'idle' && t.session_count === 0 && t.task_count === 0;
@@ -184,7 +197,12 @@ export default function AdminTrainerTimelinePage() {
   const onTaskCount    = trainers.filter(t => t.live_status === 'on_task').length;
   const idleCount      = trainers.filter(t => t.live_status === 'idle' && !t.session_count && !t.task_count).length;
   const totalWorkMins  = trainers.reduce((acc, t) => acc + t.total_logged_minutes, 0);
-  const totalIdleMins  = trainers.reduce((acc, t) => acc + t.total_idle_minutes, 0);
+  const totalClassMins = trainers.reduce((acc, t) => acc + t.total_class_minutes, 0);
+
+  const optimalCount       = trainers.filter(t => (t.active_batch_count || 0) >= 5).length;
+  const underUtilizedCount = trainers.filter(t => (t.active_batch_count || 0) > 0 && (t.active_batch_count || 0) < 5).length;
+  const noBatchesCount     = trainers.filter(t => (t.active_batch_count || 0) === 0).length;
+  const noClassTodayCount  = trainers.filter(t => (t.active_batch_count || 0) > 0 && !t.is_taking_classes_today && t.check_in).length;
 
   const nowPct = Math.max(0, Math.min(100, ((nowMin - DAY_START) / DAY_SPAN) * 100));
   const nowTimeString = `${String(Math.floor(nowMin / 60)).padStart(2, '0')}:${String(nowMin % 60).padStart(2, '0')}`;
@@ -201,7 +219,7 @@ export default function AdminTrainerTimelinePage() {
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
               <Sparkles className="h-6 w-6 text-indigo-600 animate-pulse" />
-              Live Trainer Activity Timeline
+              Live Trainer Activity & Workload Timeline
             </h1>
             {isToday && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold animate-pulse">
@@ -211,7 +229,7 @@ export default function AdminTrainerTimelinePage() {
             )}
           </div>
           <p className="text-xs text-slate-500 mt-1 font-medium">
-            Real-time visual monitoring of classes, tasks, attendance, and idle intervals per trainer.
+            Real-time visual monitoring of batches, capacity utilization (5-batch daily threshold), attendance, and class status.
           </p>
         </div>
 
@@ -265,94 +283,105 @@ export default function AdminTrainerTimelinePage() {
         </div>
       </div>
 
-      {/* ── Summary Stats Cards ───────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
+      {/* ── Summary Stats Cards with Utilization ───────────────────────────── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {[
           {
             label: 'Total Trainers',
             value: trainers.length,
             color: '#2563eb',
-            bg: '#eff6ff',
+            filterId: 'all',
             icon: <Users className="h-4 w-4" />,
             subtitle: `${trainers.filter(t => t.check_in).length} Checked In Today`
           },
           {
-            label: 'In Class Now',
-            value: inClassCount,
-            color: '#2563eb',
-            bg: '#dbeafe',
-            icon: <BookOpen className="h-4 w-4" />,
-            subtitle: `${trainers.reduce((a, t) => a + t.session_count, 0)} Total Sessions`
-          },
-          {
-            label: 'On Task Now',
-            value: onTaskCount,
-            color: '#7c3aed',
-            bg: '#f5f3ff',
-            icon: <CheckSquare className="h-4 w-4" />,
-            subtitle: `${trainers.reduce((a, t) => a + t.task_count, 0)} Total Tasks`
-          },
-          {
-            label: 'Idle / Free',
-            value: idleCount,
-            color: '#e11d48',
-            bg: '#fff1f2',
-            icon: <Zap className="h-4 w-4" />,
-            subtitle: `${fmtMin(totalIdleMins)} Total Idle Time`
-          },
-          {
-            label: 'Logged Work Hrs',
-            value: `${(totalWorkMins / 60).toFixed(1)}h`,
+            label: 'Optimal Load (5+ Batches)',
+            value: optimalCount,
             color: '#059669',
-            bg: '#ecfdf5',
+            filterId: 'optimal',
+            icon: <TrendingUp className="h-4 w-4" />,
+            subtitle: 'Target Met (5 Batches/Day)'
+          },
+          {
+            label: 'Under-Utilized (<5)',
+            value: underUtilizedCount,
+            color: '#d97706',
+            filterId: 'under_utilized',
+            icon: <Layers className="h-4 w-4" />,
+            subtitle: 'Needs More Batches'
+          },
+          {
+            label: '0 Batches Assigned',
+            value: noBatchesCount,
+            color: '#64748b',
+            filterId: 'no_batches',
+            icon: <Package className="h-4 w-4" />,
+            subtitle: 'Free / Unassigned'
+          },
+          {
+            label: 'No Class Taken Today',
+            value: noClassTodayCount,
+            color: '#e11d48',
+            filterId: 'no_class_today',
+            icon: <ShieldAlert className="h-4 w-4" />,
+            subtitle: 'Has Batches but Idle'
+          },
+          {
+            label: 'Teaching Hours Today',
+            value: `${(totalClassMins / 60).toFixed(1)}h`,
+            color: '#7c3aed',
+            filterId: 'all',
             icon: <Clock className="h-4 w-4" />,
-            subtitle: `${fmtMin(totalWorkMins)} Productive`
+            subtitle: `${(totalWorkMins / 60).toFixed(1)}h Total Work`
           },
         ].map(s => (
           <div
             key={s.label}
-            className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow"
+            onClick={() => setStatusFilter(s.filterId as any)}
+            className={`bg-white rounded-2xl border p-4 shadow-xs flex flex-col justify-between hover:shadow-md transition-all cursor-pointer ${
+              statusFilter === s.filterId ? 'ring-2 ring-indigo-600 border-indigo-300' : 'border-slate-200/80'
+            }`}
             style={{ borderTop: `3px solid ${s.color}` }}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
                 {s.label}
               </span>
-              <div
-                className="h-8 w-8 rounded-xl flex items-center justify-center shrink-0 font-bold"
-                style={{ background: s.bg, color: s.color }}
+              <span
+                className="p-1.5 rounded-lg text-white"
+                style={{ background: s.color }}
               >
                 {s.icon}
-              </div>
+              </span>
             </div>
-            <div className="mt-2">
-              <div className="text-2xl font-black font-mono tracking-tight text-slate-800">
+            <div className="mt-2 space-y-0.5">
+              <div className="text-xl font-black text-slate-900 tracking-tight">
                 {s.value}
               </div>
-              <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+              <p className="text-[10px] font-semibold text-slate-400 truncate">
                 {s.subtitle}
-              </div>
+              </p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* ── Filters & Search Toolbar ───────────────────────────── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
-        {/* Search Input */}
+      {/* ── Search & Filter Tabs ─────────────────────────── */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Search input */}
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search trainer by name, username, or role..."
+            placeholder="Search trainer by name, username, designation..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+            className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-600 shadow-2xs"
           />
           {searchTerm && (
             <button
               onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -366,18 +395,21 @@ export default function AdminTrainerTimelinePage() {
           </span>
           {[
             { id: 'all', label: 'All Trainers' },
+            { id: 'optimal', label: '🟢 Optimal (5+ Batches)' },
+            { id: 'under_utilized', label: '🟡 Under-Utilized (<5)' },
+            { id: 'no_batches', label: '⚪ 0 Batches' },
+            { id: 'no_class_today', label: '⚠️ No Class Today' },
             { id: 'in_class', label: '🔵 In Class' },
             { id: 'on_task', label: '🟣 On Task' },
-            { id: 'idle', label: '🔴 Idle / Free' },
-            { id: 'occupied', label: '⚡ Has Activity' },
+            { id: 'idle', label: '🔴 Idle' },
           ].map(f => (
             <button
               key={f.id}
               onClick={() => setStatusFilter(f.id as any)}
-              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer text-xs ${
                 statusFilter === f.id
                   ? 'bg-slate-900 text-white shadow-xs font-black'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 font-semibold'
               }`}
             >
               {f.label}
@@ -413,7 +445,7 @@ export default function AdminTrainerTimelinePage() {
             </div>
           )}
         </div>
-        <span className="text-slate-400 text-[11px]">Click row or block for detailed breakdown</span>
+        <span className="text-slate-400 text-[11px]">Click trainer row for complete workload breakdown</span>
       </div>
 
       {/* ── Timeline Grid ───────────────────────────── */}
@@ -433,7 +465,7 @@ export default function AdminTrainerTimelinePage() {
           {/* Hour Ruler */}
           <div
             className="flex items-end px-4 pt-3 pb-2 bg-slate-50/80 border-b border-slate-200 relative"
-            style={{ marginLeft: '220px' }}
+            style={{ marginLeft: '260px' }}
           >
             <div className="relative w-full h-5">
               {HOUR_MARKS.map(h => (
@@ -453,6 +485,11 @@ export default function AdminTrainerTimelinePage() {
             {filteredTrainers.map(trainer => {
               const bBadge = getLiveBadge(trainer.live_status);
               const hasActivity = trainer.session_count > 0 || trainer.task_count > 0;
+              const batchCount = trainer.active_batch_count || 0;
+              const isOptimal = batchCount >= 5;
+              const isUnderUtilized = batchCount > 0 && batchCount < 5;
+              const isNoBatch = batchCount === 0;
+              const isInactiveToday = batchCount > 0 && !trainer.is_taking_classes_today && trainer.check_in;
 
               return (
                 <div
@@ -461,8 +498,8 @@ export default function AdminTrainerTimelinePage() {
                   onClick={() => setSelectedTrainer(trainer)}
                 >
 
-                  {/* Left Column: Trainer Info */}
-                  <div className="w-[220px] shrink-0 p-3.5 space-y-1.5 border-r border-slate-100 bg-white group-hover:bg-slate-50/50 transition-colors">
+                  {/* Left Column: Trainer Info & Workload Utilization */}
+                  <div className="w-[260px] shrink-0 p-3.5 space-y-2 border-r border-slate-100 bg-white group-hover:bg-slate-50/50 transition-colors">
                     <div className="flex items-center gap-2.5">
                       <div
                         className="h-8 w-8 rounded-full flex items-center justify-center font-black text-xs text-white shrink-0 shadow-xs"
@@ -471,16 +508,46 @@ export default function AdminTrainerTimelinePage() {
                         {trainer.trainer_name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-black text-slate-800 truncate group-hover:text-indigo-600 transition-colors">
-                          {trainer.trainer_name}
+                        <div className="text-xs font-black text-slate-800 truncate group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                          <span>{trainer.trainer_name}</span>
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono truncate">
-                          @{trainer.username}
+                          @{trainer.username} · {trainer.designation}
                         </div>
                       </div>
                     </div>
 
-                    {/* Live Status Badge */}
+                    {/* Batch Workload & Capacity Utilization Badge */}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {isOptimal && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-[10px]">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                          📦 {batchCount}/5 Batches (Optimal)
+                        </span>
+                      )}
+                      {isUnderUtilized && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 font-extrabold text-[10px]">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                          📦 {batchCount}/5 Batches (Under-Utilized)
+                        </span>
+                      )}
+                      {isNoBatch && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600 font-extrabold text-[10px]">
+                          <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
+                          📦 0 Batches Assigned
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Inactivity Warning if trainer hasn't taken class today */}
+                    {isInactiveToday && (
+                      <div className="px-2 py-0.5 rounded-md bg-rose-100 border border-rose-200 text-rose-800 font-extrabold text-[10px] flex items-center gap-1 animate-pulse">
+                        <AlertTriangle className="h-3 w-3 text-rose-600 shrink-0" />
+                        <span>No Class Taken Today!</span>
+                      </div>
+                    )}
+
+                    {/* Live Status Badge & Class Hours Today */}
                     <div className="flex items-center justify-between gap-1 pt-0.5">
                       <div
                         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border"
@@ -497,14 +564,16 @@ export default function AdminTrainerTimelinePage() {
                             animation: trainer.live_status === 'in_class' ? 'pulse 2s infinite' : 'none'
                           }}
                         />
-                        <span className="truncate max-w-[120px]">{bBadge.label}</span>
+                        <span className="truncate max-w-[130px]">{bBadge.label}</span>
                       </div>
 
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
+                      <div className="text-[10px] font-mono text-slate-600 font-bold">
+                        ⏱️ {fmtMin(trainer.total_class_minutes)}
+                      </div>
                     </div>
 
                     {/* Attendance check-in / out time */}
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-0.5">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-0.5 border-t border-slate-100">
                       <span>Check In:</span>
                       <span className="font-bold text-slate-700">
                         {trainer.check_in ? (
@@ -579,7 +648,7 @@ export default function AdminTrainerTimelinePage() {
                                 ? '1.5px solid #1e40af'
                                 : isTask
                                 ? '1.5px solid #5b21b6'
-                                : '1px dashed #f43f5e',
+                                : '1.5px dashed #f43f5e',
                               color: isIdle ? '#e11d48' : '#ffffff',
                               minWidth: '6px',
                             }}
@@ -629,6 +698,7 @@ export default function AdminTrainerTimelinePage() {
                       </div>
                     </div>
                   </div>
+
                 </div>
               );
             })}
@@ -636,54 +706,66 @@ export default function AdminTrainerTimelinePage() {
         </div>
       )}
 
-      {/* ── Block Tooltip Popup ─────────────────────────────────── */}
+      {/* ── Tooltip Float ─────────────────────────────── */}
       {tooltip && (
         <div
-          className="fixed z-50 pointer-events-none rounded-2xl shadow-2xl p-3.5 space-y-1.5 text-xs animate-in fade-in zoom-in-95 duration-150"
+          className="fixed z-50 bg-slate-900 text-white rounded-2xl shadow-2xl p-4 text-xs space-y-2.5 max-w-xs border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
           style={{
-            top: tooltip.y - 12,
-            left: Math.min(window.innerWidth - 260, tooltip.x + 12),
-            background: '#0f172a',
-            color: '#f8fafc',
-            width: '260px',
-            transform: 'translateY(-100%)',
-            border: '1px solid rgba(255,255,255,0.15)'
+            left: Math.min(window.innerWidth - 320, Math.max(16, tooltip.x - 140)),
+            top: Math.max(16, tooltip.y - 140),
           }}
+          onClick={e => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between font-bold text-white text-sm">
-            <span>
-              {tooltip.block.type === 'class' ? '📚 Class Session' : tooltip.block.type === 'task' ? '✅ Task Log' : '⏳ Idle Gap'}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <span className="font-extrabold uppercase tracking-wider text-[10px] text-slate-400">
+              {tooltip.block.type === 'class'
+                ? '📚 Batch Class Session'
+                : tooltip.block.type === 'task'
+                ? '✅ Syllabus / Work Task'
+                : '⏳ Idle Gap'}
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-slate-300">
-              {fmtMin(tooltip.block.duration_minutes)}
-            </span>
+            <button
+              onClick={() => setTooltip(null)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
 
-          <div className="text-slate-200 font-medium leading-tight">
-            {tooltip.block.label}
+          <div>
+            <div className="font-bold text-sm text-white">{tooltip.block.label}</div>
+            {tooltip.block.batch_name && (
+              <div className="text-[11px] text-indigo-300 font-semibold mt-0.5">
+                Batch: {tooltip.block.batch_name}
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 pt-2 border-t border-white/10 text-[11px] font-mono text-indigo-300">
-            <Clock className="h-3.5 w-3.5" />
-            <span>{tooltip.block.start} → {tooltip.block.end}</span>
-          </div>
-
-          {tooltip.block.batch_name && (
-            <div className="text-[11px] text-blue-300 font-semibold">
-              Batch: {tooltip.block.batch_name}
+          <div className="grid grid-cols-2 gap-2 bg-slate-800/80 p-2.5 rounded-xl text-[11px] font-mono">
+            <div>
+              <span className="text-slate-400 text-[10px] block font-sans">Time Range</span>
+              <span className="font-bold text-slate-200">
+                {tooltip.block.start} → {tooltip.block.end}
+              </span>
             </div>
-          )}
+            <div>
+              <span className="text-slate-400 text-[10px] block font-sans">Duration</span>
+              <span className="font-bold text-emerald-400">
+                {fmtMin(tooltip.block.duration_minutes)}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── Trainer Detail Modal Drawer ───────────────────────────── */}
+      {/* ── Trainer Detail Modal / Drawer ────────────────── */}
       {selectedTrainer && (
         <div
           className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setSelectedTrainer(null)}
         >
           <div
-            className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -696,11 +778,14 @@ export default function AdminTrainerTimelinePage() {
                   {selectedTrainer.trainer_name.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                    {selectedTrainer.trainer_name}
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                    <span>{selectedTrainer.trainer_name}</span>
+                    <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold">
+                      {selectedTrainer.designation}
+                    </span>
                   </h2>
-                  <p className="text-xs text-slate-500 font-semibold">
-                    {selectedTrainer.designation} · <span className="font-mono text-indigo-600">@{selectedTrainer.username}</span>
+                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                    Username: <span className="font-mono text-indigo-600">@{selectedTrainer.username}</span>
                   </p>
                 </div>
               </div>
@@ -711,6 +796,59 @@ export default function AdminTrainerTimelinePage() {
               >
                 <X className="h-5 w-5" />
               </button>
+            </div>
+
+            {/* Batch Workload & Capacity Utilization Card */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-indigo-300">
+                  <Layers className="h-4 w-4 text-indigo-400" />
+                  <span>Batch Workload & Utilization Gauge</span>
+                </div>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
+                  (selectedTrainer.active_batch_count || 0) >= 5
+                    ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
+                    : (selectedTrainer.active_batch_count || 0) > 0
+                    ? 'bg-amber-500/20 border border-amber-400 text-amber-300'
+                    : 'bg-slate-500/20 border border-slate-400 text-slate-300'
+                }`}>
+                  {(selectedTrainer.active_batch_count || 0) >= 5
+                    ? 'Optimal Utilization (5+ Batches)'
+                    : (selectedTrainer.active_batch_count || 0) > 0
+                    ? 'Under-Utilized (<5 Batches)'
+                    : 'Zero Active Batches'}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-bold">
+                  <span>Current Active Batches: <strong className="text-emerald-400">{selectedTrainer.active_batch_count || 0}</strong></span>
+                  <span className="text-slate-400">Target: 5 Daily Batches</span>
+                </div>
+                {/* Progress bar */}
+                <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                  <div
+                    className={`h-full transition-all ${
+                      (selectedTrainer.active_batch_count || 0) >= 5 ? 'bg-emerald-500' : 'bg-amber-400'
+                    }`}
+                    style={{ width: `${Math.min(100, ((selectedTrainer.active_batch_count || 0) / 5) * 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Active Batch Names List */}
+              {selectedTrainer.active_batch_names && selectedTrainer.active_batch_names.length > 0 && (
+                <div className="pt-2 border-t border-slate-800 text-xs">
+                  <div className="text-[11px] font-bold text-slate-400 mb-1.5">Assigned Active Batches:</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedTrainer.active_batch_names.map((bName, bi) => (
+                      <span key={bi} className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-[11px]">
+                        📚 {bName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Attendance & Shift Summary */}

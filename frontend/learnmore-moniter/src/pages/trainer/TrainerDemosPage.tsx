@@ -16,8 +16,59 @@ import {
   Phone,
   Mail,
   User as UserIcon,
-  RefreshCw
+  RefreshCw,
+  Quote,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Pause,
 } from 'lucide-react';
+
+/* ── IT & Demo Motivational Quotes with HD Backgrounds ─────────── */
+const IT_DEMO_QUOTES = [
+  {
+    quote: "A great demo doesn't just show features; it shows students how their life and career can transform.",
+    author: "Satya Nadella",
+    role: "CEO, Microsoft",
+    tag: "🎯 Demo Excellence",
+    bgImage: "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Talk is cheap. Show me the code and teach with real-world industry hands-on projects.",
+    author: "Linus Torvalds",
+    role: "Creator of Linux & Git",
+    tag: "💻 Coding Mastery",
+    bgImage: "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "Your most impactful demo is when a student believes: 'I can build this myself!'",
+    author: "Steve Jobs",
+    role: "Co-founder, Apple",
+    tag: "🚀 Student Inspiration",
+    bgImage: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "The secret to converting a demo is empathy, passion, and simplifying complex tech concepts.",
+    author: "Sundar Pichai",
+    role: "CEO, Alphabet & Google",
+    tag: "✨ Mentor Impact",
+    bgImage: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "First, solve the problem. Then, write the code. Inspire every learner to think logically.",
+    author: "John Johnson",
+    role: "Software Architect",
+    tag: "🧩 Problem Solving",
+    bgImage: "https://images.unsplash.com/photo-1515879218367-8466d910aaa4?w=1600&auto=format&fit=crop&q=80",
+  },
+  {
+    quote: "The best way to predict the future is to build and teach cutting-edge technology.",
+    author: "Alan Kay",
+    role: "Computer Scientist & Pioneer",
+    tag: "🔮 Future of Tech",
+    bgImage: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&auto=format&fit=crop&q=80",
+  },
+];
 
 interface DemoMeeting {
   id: number;
@@ -33,6 +84,18 @@ export default function TrainerDemosPage() {
   const [user, setUser] = useState<User | null>(null);
   const [demoMeetings, setDemoMeetings] = useState<DemoMeeting[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Motivational Quote Carousel State
+  const [quoteIdx, setQuoteIdx] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+
+  useEffect(() => {
+    if (!isAutoPlaying) return;
+    const timer = setInterval(() => {
+      setQuoteIdx((prev) => (prev + 1) % IT_DEMO_QUOTES.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [isAutoPlaying]);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -145,25 +208,150 @@ export default function TrainerDemosPage() {
 
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-      <div className="rounded-3xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-6 sm:p-8 text-white shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-white font-bold text-xs">
-            <Sparkles className="w-3.5 h-3.5" /> Demo & Conversion Analytics
-          </span>
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
-            Assigned Demo History
-          </h1>
-          <p className="text-xs sm:text-sm text-blue-100 max-w-xl">
-            View all demo sessions assigned to you, track student details, counsellor info, and live student admission/joined status.
-          </p>
-        </div>
+      {/* ── Hero Banner with Dynamic Rotating IT Backgrounds & Motivational Quotes Carousel ───────────────────────────────── */}
+      <div className="relative rounded-3xl p-6 sm:p-8 lg:p-9 text-white overflow-hidden shadow-2xl border border-indigo-500/20 min-h-[280px]">
+        {/* Dynamic Rotating Background Images with Smooth Crossfade */}
+        {IT_DEMO_QUOTES.map((item, idx) => (
+          <div
+            key={idx}
+            className={`absolute inset-0 transition-opacity duration-1000 ease-in-out ${
+              idx === quoteIdx ? 'opacity-100 scale-100' : 'opacity-0 scale-105 pointer-events-none'
+            }`}
+            style={{
+              backgroundImage: `linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 27, 75, 0.90) 50%, rgba(49, 46, 129, 0.88) 100%), url('${item.bgImage}')`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              transitionProperty: 'opacity, transform',
+              transitionDuration: '1000ms',
+            }}
+          />
+        ))}
 
-        <button
-          onClick={() => user && fetchDemos(user)}
-          className="px-4 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh Data
-        </button>
+        {/* Ambient Glowing Orbs */}
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 right-10 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+          {/* Left Column: Title & Actions */}
+          <div className="space-y-3 max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-white/10 text-indigo-200 border border-white/15 backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" /> Demo & Conversion Analytics
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-400/20 text-emerald-200 border border-emerald-300/30">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Tracking
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black tracking-tight leading-tight text-white drop-shadow-sm">
+              Assigned Demo History
+            </h1>
+
+            <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed font-normal">
+              Review assigned student demos, counsellor information, meeting links, and real-time admission conversion results.
+            </p>
+
+            <div className="flex flex-wrap gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => user && fetchDemos(user)}
+                className="flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-extrabold bg-white text-indigo-900 hover:bg-slate-100 shadow-md transition-all active:scale-95 cursor-pointer"
+              >
+                <RefreshCw className={`h-4 w-4 text-indigo-600 ${loading ? 'animate-spin' : ''}`} /> Refresh Demos
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Interactive Motivational Quotes Carousel */}
+          <div className="w-full lg:w-[480px] bg-slate-900/60 backdrop-blur-xl border border-white/15 rounded-2xl p-5 space-y-4 shadow-xl relative overflow-hidden group">
+            {/* Top Bar inside Quote Box */}
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/30 border border-indigo-400/30 text-[10px] font-extrabold text-indigo-200 uppercase tracking-wider">
+                {IT_DEMO_QUOTES[quoteIdx].tag}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-indigo-200 transition-colors cursor-pointer text-[10px] flex items-center gap-1"
+                  title={isAutoPlaying ? 'Pause auto-rotation' : 'Play auto-rotation'}
+                >
+                  {isAutoPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  <span className="font-mono text-[9px]">{isAutoPlaying ? 'Auto' : 'Paused'}</span>
+                </button>
+
+                <div className="h-3 w-px bg-white/10 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) =>
+                      prev === 0 ? IT_DEMO_QUOTES.length - 1 : prev - 1
+                    )
+                  }
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Previous Quote"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setQuoteIdx((prev) => (prev + 1) % IT_DEMO_QUOTES.length)
+                  }
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                  title="Next Quote"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Quote Body with Icon */}
+            <div className="relative min-h-[90px] flex flex-col justify-between">
+              <div className="flex gap-2.5">
+                <Quote className="h-5 w-5 text-indigo-400 shrink-0 opacity-70 mt-0.5" />
+                <p className="text-xs sm:text-sm text-slate-100 font-semibold italic leading-relaxed">
+                  "{IT_DEMO_QUOTES[quoteIdx].quote}"
+                </p>
+              </div>
+
+              <div className="pt-3 flex items-center justify-between text-[11px]">
+                <div>
+                  <span className="font-extrabold text-white">
+                    — {IT_DEMO_QUOTES[quoteIdx].author}
+                  </span>
+                  <span className="text-slate-300 ml-1.5 text-[10px]">
+                    ({IT_DEMO_QUOTES[quoteIdx].role})
+                  </span>
+                </div>
+
+                <span className="font-mono text-[10px] text-slate-400 font-bold">
+                  {quoteIdx + 1}/{IT_DEMO_QUOTES.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Indicator Dots */}
+            <div className="flex items-center justify-center gap-1.5 pt-1">
+              {IT_DEMO_QUOTES.map((_, dotIdx) => (
+                <button
+                  key={dotIdx}
+                  type="button"
+                  onClick={() => setQuoteIdx(dotIdx)}
+                  className={`h-1.5 rounded-full transition-all cursor-pointer ${
+                    dotIdx === quoteIdx
+                      ? 'w-6 bg-indigo-400 shadow-xs'
+                      : 'w-1.5 bg-white/25 hover:bg-white/50'
+                  }`}
+                  title={`Quote ${dotIdx + 1}`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">

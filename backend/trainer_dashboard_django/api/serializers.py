@@ -15,6 +15,8 @@ from .models import (
     AttendanceGroupConfig,
     Holiday,
     WhatsAppGroup,
+    SupportThread,
+    SupportMessage,
 )
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -245,6 +247,35 @@ class WhatsAppGroupSerializer(serializers.ModelSerializer):
     class Meta:
         model = WhatsAppGroup
         fields = '__all__'
+
+
+class SupportMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupportMessage
+        fields = '__all__'
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['thread_id'] = instance.thread_id or (instance.thread.id if instance.thread else '')
+        data['sender_id'] = instance.sender_id or (instance.sender.id if instance.sender else '')
+        return data
+
+
+class SupportThreadSerializer(serializers.ModelSerializer):
+    messages_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportThread
+        fields = '__all__'
+
+    def get_messages_count(self, obj):
+        return obj.messages.count()
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['user_id'] = instance.user_id or (instance.user.id if instance.user else '')
+        data['recipient_id'] = instance.recipient_id or (instance.recipient.id if instance.recipient else '')
+        return data
 
 
 

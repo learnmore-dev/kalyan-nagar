@@ -23,6 +23,8 @@ from .models import (
     AttendanceGroupConfig,
     Holiday,
     WhatsAppGroup,
+    SupportThread,
+    SupportMessage,
 )
 from .serializers import (
     UserProfileSerializer,
@@ -40,6 +42,8 @@ from .serializers import (
     AttendanceGroupConfigSerializer,
     HolidaySerializer,
     WhatsAppGroupSerializer,
+    SupportThreadSerializer,
+    SupportMessageSerializer,
 )
 
 
@@ -1460,6 +1464,30 @@ def trainer_timeline_view(request):
 
         total_logged_minutes = total_class_minutes + total_task_minutes
 
+        # ── Batch Workload & Utilization (Target = 5 Daily Batches) ──────
+        active_batches_qs = Batch.objects.filter(
+            Q(trainer_id=trainer.id) | Q(trainer_name__iexact=trainer.name),
+            is_completed=False,
+            is_active=True
+        )
+        active_batch_count = active_batches_qs.count()
+        active_batch_names = list(active_batches_qs.values_list('name', flat=True))
+
+        if active_batch_count >= 5:
+            utilization_status = 'optimal'
+            utilization_label = f"Optimal ({active_batch_count}/5 Batches)"
+        elif active_batch_count > 0:
+            utilization_status = 'under_utilized'
+            utilization_label = f"Under-Utilized ({active_batch_count}/5 Batches)"
+        else:
+            utilization_status = 'no_batches'
+            utilization_label = "0 Batches Assigned"
+
+        # Inactivity alert: Has active batches but 0 sessions or classes taken today
+        has_sessions_today = sessions.count() > 0
+        has_live_class_now = live_status == 'in_class'
+        is_taking_classes_today = has_sessions_today or has_live_class_now
+
         result.append({
             'trainer_id':   str(trainer.id),
             'trainer_name': trainer.name,
@@ -1482,6 +1510,11 @@ def trainer_timeline_view(request):
             'total_logged_minutes': total_logged_minutes,
             'session_count': sessions.count(),
             'task_count':    tasks.count(),
+            'active_batch_count': active_batch_count,
+            'active_batch_names': active_batch_names,
+            'utilization_status': utilization_status,
+            'utilization_label': utilization_label,
+            'is_taking_classes_today': is_taking_classes_today,
             'blocks':        all_blocks,
         })
 
@@ -1522,5 +1555,324 @@ def cron_12pm_cutoff_view(request):
         'totalFlagged': 0,
         'isWorkingDay': True
     })
+
+
+@csrf_exempt
+@api_view(['GET'])
+def support_contacts_view(request):
+    """
+    Get all active users for direct messaging directory.
+    """
+    current_user_id = request.GET.get('user_id', '').strip()
+    users = UserProfile.objects.all().order_by('name')
+    if current_user_id:
+        users = users.exclude(id=current_user_id)
+    
+    contacts = []
+    for u in users:
+        contacts.append({
+            'id': u.id,
+            'name': u.name,
+            'username': u.username,
+            'role': u.role,
+            'designation': u.designation or ('Administrator' if u.role == 'admin' else 'Faculty Trainer'),
+            'avatar': u.avatar or '',
+            'email': u.email or '',
+            'phone': u.phone or '',
+        })
+
+    return Response({
+        'success': True,
+        'contacts': contacts
+    })
+
+
+@csrf_exempt
+@api_view(['GET'])
+def support_threads_view(request):
+    """
+    Get support and direct chat threads.
+    - thread_type: 'admin_support' | 'direct_message' | 'faculty_lounge' | 'all'
+    """
+    user_id = request.GET.get('user_id', '').strip()
+    role = request.GET.get('role', 'trainer').strip().lower()
+    thread_type = request.GET.get('thread_type', 'admin_support').strip()
+    recipient_id = request.GET.get('recipient_id', '').strip()
+
+    # 1. Faculty Community Lounge Thread
+    if thread_type == 'faculty_lounge':
+        lounge_thread = SupportThread.objects.filter(id='faculty_lounge_global').first()
+        if not lounge_thread:
+            admin_user = UserProfile.objects.filter(role='admin').first() or UserProfile.objects.first()
+            if admin_user:
+                lounge_thread = SupportThread.objects.create(
+                    id='faculty_lounge_global',
+                    thread_type='faculty_lounge',
+                    user=admin_user,
+                    user_name='Learnmore Institute',
+                    user_role='admin',
+                    subject='Faculty Community Lounge',
+                    status='open'
+                )
+        threads = [lounge_thread] if lounge_thread else []
+
+    # 2. Direct 1-on-1 Messages
+    elif thread_type == 'direct_message':
+        if not user_id:
+            return Response({'success': False, 'error': 'user_id is required for direct messages'}, status=400)
+        
+        if recipient_id:
+            # Look for specific conversation between user_id and recipient_id
+            threads = SupportThread.objects.filter(
+                thread_type='direct_message'
+            ).filter(
+                (Q(user_id=user_id) & Q(recipient_id=recipient_id)) |
+                (Q(user_id=recipient_id) & Q(recipient_id=user_id))
+            ).order_by('-last_message_at')
+
+            if not threads.exists():
+                u1 = UserProfile.objects.filter(id=user_id).first()
+                u2 = UserProfile.objects.filter(id=recipient_id).first()
+                if u1 and u2:
+                    created_thread = SupportThread.objects.create(
+                        thread_type='direct_message',
+                        user=u1,
+                        user_name=u1.name,
+                        user_role=u1.role,
+                        recipient=u2,
+                        recipient_name=u2.name,
+                        subject=f"Direct: {u1.name} & {u2.name}",
+                        status='open'
+                    )
+                    threads = [created_thread]
+        else:
+            # All direct message conversations for this user
+            threads = SupportThread.objects.filter(
+                thread_type='direct_message'
+            ).filter(
+                Q(user_id=user_id) | Q(recipient_id=user_id)
+            ).order_by('-last_message_at')
+
+    # 3. Admin Support / Doubts Channel
+    else:
+        if role == 'admin':
+            threads = SupportThread.objects.filter(thread_type='admin_support').order_by('-last_message_at')
+        else:
+            if not user_id:
+                return Response({'success': False, 'error': 'user_id is required for trainers'}, status=400)
+            
+            threads = SupportThread.objects.filter(user_id=user_id, thread_type='admin_support').order_by('-last_message_at')
+            if not threads.exists():
+                user_profile = UserProfile.objects.filter(id=user_id).first()
+                if user_profile:
+                    thread = SupportThread.objects.create(
+                        thread_type='admin_support',
+                        user=user_profile,
+                        user_name=user_profile.name,
+                        user_role=user_profile.role,
+                        subject='Trainer Doubt & Support Channel',
+                        status='open'
+                    )
+                    threads = [thread]
+
+    serializer = SupportThreadSerializer(threads, many=True)
+    return Response({
+        'success': True,
+        'threads': serializer.data
+    })
+
+
+@csrf_exempt
+@api_view(['GET'])
+def support_thread_messages_view(request, thread_id):
+    """
+    Get messages for a specific support thread and mark as read.
+    """
+    thread = SupportThread.objects.filter(id=thread_id).first()
+    if not thread:
+        return Response({'success': False, 'error': 'Support thread not found'}, status=404)
+
+    viewer_id = request.GET.get('user_id', '').strip()
+    viewer_role = request.GET.get('role', 'trainer').strip().lower()
+
+    # Reset unread counters based on thread type and viewer
+    if thread.thread_type == 'admin_support':
+        if viewer_role == 'admin':
+            if thread.unread_admin_count > 0:
+                thread.unread_admin_count = 0
+                thread.save(update_fields=['unread_admin_count'])
+        else:
+            if thread.unread_user_count > 0:
+                thread.unread_user_count = 0
+                thread.save(update_fields=['unread_user_count'])
+    elif thread.thread_type == 'direct_message':
+        if viewer_id:
+            if thread.user_id == viewer_id and thread.unread_user_count > 0:
+                thread.unread_user_count = 0
+                thread.save(update_fields=['unread_user_count'])
+            elif thread.recipient_id == viewer_id and thread.unread_recipient_count > 0:
+                thread.unread_recipient_count = 0
+                thread.save(update_fields=['unread_recipient_count'])
+
+    messages = thread.messages.all().order_by('created_at')
+    thread_data = SupportThreadSerializer(thread).data
+    messages_data = SupportMessageSerializer(messages, many=True).data
+
+    return Response({
+        'success': True,
+        'thread': thread_data,
+        'messages': messages_data
+    })
+
+
+@csrf_exempt
+@api_view(['POST'])
+def support_send_message_view(request):
+    """
+    Send a message in Admin support, Direct 1-on-1 chat, or Faculty Lounge with attachments.
+    """
+    data = request.data
+    thread_id = data.get('thread_id')
+    thread_type = data.get('thread_type', 'admin_support')
+    user_id = data.get('user_id')
+    recipient_id = data.get('recipient_id')
+    sender_name = data.get('sender_name', 'Anonymous')
+    sender_role = data.get('sender_role', 'trainer').lower()
+    message_text = data.get('message', '').strip()
+    subject = data.get('subject', 'Chat Message')
+    
+    attachment_name = data.get('attachment_name')
+    attachment_type = data.get('attachment_type')
+    attachment_data = data.get('attachment_data')
+    attachment_size = data.get('attachment_size')
+
+    if not message_text and not attachment_data:
+        return Response({'success': False, 'error': 'Message or document is required'}, status=400)
+
+    thread = None
+    if thread_id:
+        thread = SupportThread.objects.filter(id=thread_id).first()
+
+    # If thread not found, find or create based on thread_type
+    if not thread:
+        if thread_type == 'faculty_lounge' or thread_id == 'faculty_lounge_global':
+            thread = SupportThread.objects.filter(id='faculty_lounge_global').first()
+            if not thread:
+                admin_user = UserProfile.objects.filter(role='admin').first() or UserProfile.objects.first()
+                thread = SupportThread.objects.create(
+                    id='faculty_lounge_global',
+                    thread_type='faculty_lounge',
+                    user=admin_user,
+                    user_name='Learnmore Institute',
+                    user_role='admin',
+                    subject='Faculty Community Lounge',
+                    status='open'
+                )
+        elif thread_type == 'direct_message' and user_id and recipient_id:
+            thread = SupportThread.objects.filter(
+                thread_type='direct_message'
+            ).filter(
+                (Q(user_id=user_id) & Q(recipient_id=recipient_id)) |
+                (Q(user_id=recipient_id) & Q(recipient_id=user_id))
+            ).first()
+
+            if not thread:
+                u1 = UserProfile.objects.filter(id=user_id).first()
+                u2 = UserProfile.objects.filter(id=recipient_id).first()
+                if u1 and u2:
+                    thread = SupportThread.objects.create(
+                        thread_type='direct_message',
+                        user=u1,
+                        user_name=u1.name,
+                        user_role=u1.role,
+                        recipient=u2,
+                        recipient_name=u2.name,
+                        subject=f"Direct: {u1.name} & {u2.name}",
+                        status='open'
+                    )
+        else:
+            # Default admin support
+            if not user_id:
+                return Response({'success': False, 'error': 'user_id is required'}, status=400)
+            user_profile = UserProfile.objects.filter(id=user_id).first()
+            if not user_profile:
+                return Response({'success': False, 'error': 'User not found'}, status=404)
+            
+            thread = SupportThread.objects.filter(user=user_profile, thread_type='admin_support').first()
+            if not thread:
+                thread = SupportThread.objects.create(
+                    thread_type='admin_support',
+                    user=user_profile,
+                    user_name=user_profile.name,
+                    user_role=user_profile.role,
+                    subject=subject or 'Trainer Doubt / Problem',
+                    status='open'
+                )
+
+    if not thread:
+        return Response({'success': False, 'error': 'Could not initialize chat thread'}, status=400)
+
+    sender_profile = UserProfile.objects.filter(id=user_id).first() if user_id else None
+
+    # Create message
+    msg = SupportMessage.objects.create(
+        thread=thread,
+        sender=sender_profile,
+        sender_name=sender_name or (sender_profile.name if sender_profile else 'User'),
+        sender_role=sender_role,
+        message=message_text,
+        attachment_name=attachment_name,
+        attachment_type=attachment_type,
+        attachment_data=attachment_data,
+        attachment_size=attachment_size,
+    )
+
+    # Update thread stats
+    summary_preview = message_text[:100] if message_text else f"📎 Attached {attachment_name or 'Document'}"
+    thread.last_message = summary_preview
+    thread.last_message_at = timezone.now()
+
+    if thread.thread_type == 'direct_message':
+        if str(user_id) == str(thread.user_id):
+            thread.unread_recipient_count += 1
+        else:
+            thread.unread_user_count += 1
+    elif thread.thread_type == 'admin_support':
+        if sender_role == 'admin':
+            thread.unread_user_count += 1
+        else:
+            thread.unread_admin_count += 1
+            if thread.status == 'resolved':
+                thread.status = 'open'
+
+    thread.save()
+
+    return Response({
+        'success': True,
+        'thread': SupportThreadSerializer(thread).data,
+        'message': SupportMessageSerializer(msg).data
+    })
+
+
+@csrf_exempt
+@api_view(['POST'])
+def support_update_status_view(request, thread_id):
+    """
+    Update thread status (open, in_progress, resolved).
+    """
+    thread = SupportThread.objects.filter(id=thread_id).first()
+    if not thread:
+        return Response({'success': False, 'error': 'Thread not found'}, status=404)
+
+    new_status = request.data.get('status')
+    if new_status in ['open', 'in_progress', 'resolved']:
+        thread.status = new_status
+        thread.save(update_fields=['status'])
+
+    return Response({
+        'success': True,
+        'thread': SupportThreadSerializer(thread).data
+    })
+
 
 
