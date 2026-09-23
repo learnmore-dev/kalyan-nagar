@@ -20,8 +20,8 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }} # Optional (if private key is password protected)
-          password: ${{ secrets.SERVER_PASSWORD }} # Optional (if using password instead of SSH key)
+          passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
+          password: ${{ secrets.SERVER_PASSWORD }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script_stop: true
           script: |
@@ -33,24 +33,35 @@ jobs:
             # 2. Pull Latest Changes from GitHub
             echo "📥 Pulling latest git changes..."
             git fetch origin
-            git reset --hard origin/main # or origin/master
+            git reset --hard origin/main
 
             # 3. Setup / Update Django Backend
             echo "🐍 Updating Django Backend..."
             cd backend/trainer_dashboard_django
 
-            # Activate python virtual environment if exists
+            # Find and activate virtualenv if available
             if [ -d "venv" ]; then
               source venv/bin/activate
             elif [ -d "../venv" ]; then
               source ../venv/bin/activate
             elif [ -d "../../venv" ]; then
               source ../../venv/bin/activate
+            elif [ -d "env" ]; then
+              source env/bin/activate
+            elif [ -d "../env" ]; then
+              source ../env/bin/activate
+            elif [ -d "../../env" ]; then
+              source ../../env/bin/activate
             fi
 
-            pip install -r requirements.txt --quiet
-            python manage.py migrate --noinput
-            python manage.py collectstatic --noinput || true
+            # Determine python & pip binary
+            PYTHON_BIN=$(command -v python3 || command -v python)
+            PIP_BIN=$(command -v pip3 || command -v pip || echo "$PYTHON_BIN -m pip")
+
+            echo "Using Python: $PYTHON_BIN"
+            $PIP_BIN install -r requirements.txt --quiet || true
+            $PYTHON_BIN manage.py migrate --noinput
+            $PYTHON_BIN manage.py collectstatic --noinput || true
 
             cd ../..
 
@@ -64,13 +75,13 @@ jobs:
             # 5. Restart Services (Gunicorn / Nginx / PM2 / Systemd)
             echo "🔄 Restarting Services..."
             if systemctl is-active --quiet gunicorn; then
-              sudo systemctl restart gunicorn
+              sudo systemctl restart gunicorn || true
             elif command -v pm2 &> /dev/null; then
               pm2 restart all || true
             fi
 
             if systemctl is-active --quiet nginx; then
-              sudo systemctl reload nginx
+              sudo systemctl reload nginx || true
             fi
 
             echo "✅ Deployment Completed Successfully!"
