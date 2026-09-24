@@ -1,57 +1,53 @@
 import { Batch, WorkSession, User } from './types';
 
-const BAILEYS_URLS = [
-  (typeof process !== 'undefined' && process.env?.BAILEYS_URL) || 'http://127.0.0.1:5002',
-  'http://127.0.0.1:5001',
-  'http://localhost:5002',
-  'http://localhost:5001',
-];
+// ─────────────────────────────────────────────────────────────────────────────
+// All Baileys calls go through the Django backend proxy (/api/whatsapp/bot)
+// so that HTTPS → loopback (127.0.0.1) CORS blocks are avoided.
+// ─────────────────────────────────────────────────────────────────────────────
+const DJANGO_WA_PROXY = '/api/whatsapp/bot';
 
 async function callBaileysSend(
   target: string,
   text: string,
-  withLogo = false,
+  _withLogo = false,
   attachment?: { document?: string; fileName?: string; mimeType?: string; image?: string }
 ): Promise<boolean> {
   if (!target) return false;
-  for (const baseUrl of BAILEYS_URLS) {
-    try {
-      const res = await fetch(`${baseUrl}/send-message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target,
-          text,
-          withLogo,
-          document: attachment?.document,
-          fileName: attachment?.fileName,
-          mimeType: attachment?.mimeType,
-          image: attachment?.image,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.success !== false) return true;
-      }
-    } catch { }
-  }
+  try {
+    const body: Record<string, unknown> = { action: 'send_message', target, text };
+    if (attachment?.document) {
+      body.document = attachment.document;
+      body.fileName = attachment.fileName || 'document';
+      body.mimeType = attachment.mimeType || 'application/octet-stream';
+    }
+    if (attachment?.image) {
+      body.image = attachment.image;
+    }
+    const res = await fetch(DJANGO_WA_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data?.success === true;
+    }
+  } catch { }
   return false;
 }
 
 async function callBaileysCreateGroup(name: string, participants: string[]): Promise<any> {
-  for (const baseUrl of BAILEYS_URLS) {
-    try {
-      const res = await fetch(`${baseUrl}/create-group`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, participants }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.success) return data;
-      }
-    } catch { }
-  }
+  try {
+    const res = await fetch(DJANGO_WA_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create_group', name, participants }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success) return data;
+    }
+  } catch { }
   return null;
 }
 
@@ -60,37 +56,39 @@ async function findGroupJidByName(groupName: string): Promise<string | null> {
   const targetLower = groupName.toLowerCase().trim();
   const cleanTarget = targetLower.replace(/[^a-z0-9]/g, '');
 
-  for (const baseUrl of BAILEYS_URLS) {
-    try {
-      const res = await fetch(`${baseUrl}/groups`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.groups && Array.isArray(data.groups)) {
-          let match = data.groups.find((g: any) => {
+  try {
+    const res = await fetch(DJANGO_WA_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_groups' }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.groups && Array.isArray(data.groups)) {
+        let match = data.groups.find((g: any) => {
+          const gName = (g.name || g.subject || '').toLowerCase().trim();
+          return gName === targetLower;
+        });
+        if (!match && cleanTarget) {
+          match = data.groups.find((g: any) => {
             const gName = (g.name || g.subject || '').toLowerCase().trim();
-            return gName === targetLower;
+            const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+            if (!cleanGName) return false;
+            return (
+              cleanGName === cleanTarget ||
+              cleanGName.includes(cleanTarget) ||
+              cleanTarget.includes(cleanGName)
+            );
           });
-
-          if (!match && cleanTarget) {
-            match = data.groups.find((g: any) => {
-              const gName = (g.name || g.subject || '').toLowerCase().trim();
-              const cleanGName = gName.replace(/[^a-z0-9]/g, '');
-              if (!cleanGName) return false;
-              return (
-                cleanGName === cleanTarget ||
-                cleanGName.includes(cleanTarget) ||
-                cleanTarget.includes(cleanGName)
-              );
-            });
-          }
-
-          if (match && match.id) return match.id;
         }
+        if (match?.id) return match.id;
       }
-    } catch { }
-  }
+    }
+  } catch { }
   return null;
 }
+
+
 
 export function formatTimeSafely(timeStr?: string | null): string {
   if (!timeStr) return '--:--';

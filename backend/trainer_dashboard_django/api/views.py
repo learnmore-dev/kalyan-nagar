@@ -1049,6 +1049,70 @@ def whatsapp_bot_gateway(request):
             )
             return Response({'success': True, 'message': 'Test message sent successfully!', 'log': WhatsAppBroadcastLogSerializer(log_obj).data})
 
+        # ─── send_message: proxy text/document/image to Baileys ───────────────
+        if action == 'send_message':
+            target  = request.data.get('target') or ''
+            text    = request.data.get('text') or ''
+            document = request.data.get('document') or None   # base64
+            file_name = request.data.get('fileName') or 'document'
+            mime_type = request.data.get('mimeType') or 'application/octet-stream'
+            image   = request.data.get('image') or None       # base64
+
+            if not target:
+                return Response({'success': False, 'error': 'target is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            payload = {'target': target, 'text': text}
+            if document:
+                payload['document'] = document
+                payload['fileName'] = file_name
+                payload['mimeType'] = mime_type
+            if image:
+                payload['image'] = image
+
+            try:
+                r = requests.post(
+                    f"{BAILEYS_URL}/send-message",
+                    json=payload,
+                    timeout=15,
+                )
+                if r.ok:
+                    result = r.json()
+                    if result.get('success'):
+                        return Response({'success': True})
+                    return Response({'success': False, 'error': result.get('error', 'Baileys returned failure')}, status=status.HTTP_502_BAD_GATEWAY)
+                return Response({'success': False, 'error': f'Baileys HTTP {r.status_code}'}, status=status.HTTP_502_BAD_GATEWAY)
+            except requests.exceptions.ConnectionError:
+                return Response({'success': False, 'error': 'WhatsApp Bot (Baileys) is not running on this server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            except requests.exceptions.Timeout:
+                return Response({'success': False, 'error': 'Message send timed out.'}, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            except Exception as e:
+                return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # ─── get_groups: proxy /groups from Baileys ───────────────────────────
+        if action == 'get_groups':
+            try:
+                force = request.data.get('force', False)
+                r = requests.get(f"{BAILEYS_URL}/groups{'?force=true' if force else ''}", timeout=8)
+                if r.ok:
+                    return Response(r.json())
+                return Response({'success': False, 'groups': []})
+            except Exception as e:
+                return Response({'success': False, 'groups': [], 'error': str(e)})
+
+        # ─── create_group: proxy /create-group from Baileys ──────────────────
+        if action == 'create_group':
+            name = request.data.get('name') or ''
+            participants = request.data.get('participants') or []
+            try:
+                r = requests.post(f"{BAILEYS_URL}/create-group", json={'name': name, 'participants': participants}, timeout=20)
+                if r.ok:
+                    return Response(r.json())
+                return Response({'success': False, 'error': f'Baileys HTTP {r.status_code}'})
+            except requests.exceptions.ConnectionError:
+                return Response({'success': False, 'error': 'WhatsApp Bot is not running on server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            except Exception as e:
+                return Response({'success': False, 'error': str(e)})
+
         return Response({'success': False, 'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
 
 
