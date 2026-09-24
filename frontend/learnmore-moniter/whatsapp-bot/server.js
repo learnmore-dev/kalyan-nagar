@@ -253,17 +253,30 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
+  const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50 MB
+
   const getBody = () =>
     new Promise((resolve) => {
-      let body = '';
-      req.on('data', (chunk) => (body += chunk));
+      const chunks = [];
+      let totalSize = 0;
+      req.on('data', (chunk) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) {
+          req.destroy();
+          resolve({});
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', () => {
         try {
+          const body = Buffer.concat(chunks).toString('utf8');
           resolve(JSON.parse(body || '{}'));
         } catch {
           resolve({});
         }
       });
+      req.on('error', () => resolve({}));
     });
 
   // GET /status

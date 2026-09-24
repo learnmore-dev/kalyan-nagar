@@ -1073,7 +1073,7 @@ def whatsapp_bot_gateway(request):
                 r = requests.post(
                     f"{BAILEYS_URL}/send-message",
                     json=payload,
-                    timeout=15,
+                    timeout=60,   # large base64 documents need more time
                 )
                 if r.ok:
                     result = r.json()

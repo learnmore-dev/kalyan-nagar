@@ -109,3 +109,10 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
+
+# Allow large document uploads (base64 PDFs/images via JSON body)
+# base64 adds ~33% overhead, so 50MB limit supports ~37MB raw files
+DATA_UPLOAD_MAX_MEMORY_SIZE = 50 * 1024 * 1024   # 50 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE  = 50 * 1024 * 1024   # 50 MB
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+
