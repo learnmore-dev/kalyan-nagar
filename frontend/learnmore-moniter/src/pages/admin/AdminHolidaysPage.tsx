@@ -45,7 +45,7 @@ export default function AdminHolidaysPage() {
 
   const fetchBalances = async () => {
     try {
-      const res = await fetch('/api/leaves/adjust');
+      const res = await fetch('/api/leaves/adjust/');
       const data = await res.json();
       if (data.success) {
         setBalances(data.balances || []);
@@ -57,7 +57,7 @@ export default function AdminHolidaysPage() {
 
   const fetchHolidayConfig = async () => {
     try {
-      const res = await fetch('/api/holidays');
+      const res = await fetch('/api/holidays/');
       const data = await res.json();
       if (data && data.success) {
         if (data.holidayConfig) {
@@ -148,7 +148,7 @@ export default function AdminHolidaysPage() {
       const selectedTrainer = trainers.find((t) => t.id === selectedTrainerId);
       const trainerName = selectedTrainer?.name || 'Trainer';
 
-      const res = await fetch('/api/leaves', {
+      const res = await fetch('/api/leaves/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

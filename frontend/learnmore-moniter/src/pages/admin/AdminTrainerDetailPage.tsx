@@ -121,7 +121,7 @@ export default function AdminTrainerDetailPage() {
     }
     setAdjusting(true);
     try {
-      const res = await fetch('/api/leaves/adjust', {
+      const res = await fetch('/api/leaves/adjust/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

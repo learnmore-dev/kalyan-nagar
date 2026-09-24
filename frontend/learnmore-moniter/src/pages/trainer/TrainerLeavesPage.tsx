@@ -86,10 +86,13 @@ export default function TrainerLeavesPage() {
 
   const fetchLeaves = async (userId: string) => {
     try {
-      const res = await fetch(`/api/leaves?trainer_id=${userId}`);
-      const data = await res.json();
-      if (data.success) {
-        setLeaves(data.leaves || []);
+      const res = await fetch(`/api/leaves/?trainer_id=${encodeURIComponent(userId)}`);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.success) {
+          setLeaves(data.leaves || []);
+        }
       }
     } catch {
       // silent
@@ -134,7 +137,7 @@ export default function TrainerLeavesPage() {
     }
 
     try {
-      const res = await fetch('/api/leaves', {
+      const res = await fetch('/api/leaves/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -146,7 +149,13 @@ export default function TrainerLeavesPage() {
         }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(res.ok ? 'Unexpected response format' : `Server error (${res.status})`);
+      }
+
       if (res.ok && (data.success || data.id)) {
         setMessage({ text: 'Leave applied successfully!', type: 'success' });
         setReason('');

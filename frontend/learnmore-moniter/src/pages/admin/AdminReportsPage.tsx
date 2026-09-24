@@ -40,7 +40,7 @@ export default function AdminReportsPage() {
     try {
       const [attRes, leaveRes] = await Promise.all([
         fetch('/api/attendance/'),
-        fetch('/api/leaves'),
+        fetch('/api/leaves/'),
       ]);
       const attData = await attRes.json();
       const leaveData = await leaveRes.json();

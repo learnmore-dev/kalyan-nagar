@@ -27,6 +27,7 @@ from .views import (
 )
 
 router = DefaultRouter()
+router.trailing_slash = '/?'
 router.register(r'users', UserProfileViewSet, basename='user')
 router.register(r'courses', CourseViewSet, basename='course')
 router.register(r'batches', BatchViewSet, basename='batch')

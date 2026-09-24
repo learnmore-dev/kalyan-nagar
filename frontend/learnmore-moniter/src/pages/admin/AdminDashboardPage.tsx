@@ -65,12 +65,12 @@ export default function AdminDashboardPage() {
   const fetchData = async () => {
     try {
       const [actRes, batRes, leaveRes, sesRes, monRes, covRes] = await Promise.all([
-        fetch('/api/live-activity'),
+        fetch('/api/live-activity/'),
         fetch('/api/batches/'),
-        fetch('/api/leaves'),
-        fetch('/api/sessions'),
-        fetch('/api/monitoring/snapshot'),
-        fetch('/api/topics/coverage'),
+        fetch('/api/leaves/'),
+        fetch('/api/sessions/'),
+        fetch('/api/monitoring/snapshot/'),
+        fetch('/api/topics/coverage/'),
       ]);
       const [actData, batData, leaveData, sesData, monData, covData] = await Promise.all([
         actRes.json().catch(() => ({})),

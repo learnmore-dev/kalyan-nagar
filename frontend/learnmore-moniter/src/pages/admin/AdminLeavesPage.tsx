@@ -46,9 +46,9 @@ export default function AdminLeavesPage() {
   const fetchLeavesData = async () => {
     try {
       const [lRes, uRes, bRes] = await Promise.all([
-        fetch('/api/leaves'),
-        fetch('/api/users?role=trainer'),
-        fetch('/api/leaves/adjust'),
+        fetch('/api/leaves/'),
+        fetch('/api/users/?role=trainer'),
+        fetch('/api/leaves/adjust/'),
       ]);
       const lData = await lRes.json();
       const uData = await uRes.json();
@@ -105,7 +105,7 @@ export default function AdminLeavesPage() {
     setAdjustMsg(null);
 
     try {
-      const res = await fetch('/api/leaves/adjust', {
+      const res = await fetch('/api/leaves/adjust/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
