@@ -146,6 +146,7 @@ class LeaveSerializer(serializers.ModelSerializer):
     class Meta:
         model = Leave
         fields = '__all__'
+        read_only_fields = ['id', 'created_at']
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
@@ -154,6 +155,8 @@ class LeaveSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def create(self, validated_data):
+        if not validated_data.get('id'):
+            validated_data['id'] = str(uuid.uuid4())
         trainer = validated_data.get('trainer')
         if trainer and not validated_data.get('trainer_name'):
             validated_data['trainer_name'] = trainer.name

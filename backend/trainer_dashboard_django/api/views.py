@@ -656,7 +656,13 @@ class LeaveViewSet(viewsets.ModelViewSet):
             try:
                 balance, _ = TrainerLeaveBalance.objects.get_or_create(
                     trainer_id=leave.trainer_id,
-                    defaults={'casual_sick_quota': 12, 'casual_sick_used': 0, 'optional_holiday_quota': 5, 'optional_holiday_used': 0}
+                    defaults={
+                        'trainer_name': leave.trainer_name or 'Trainer',
+                        'casual_sick_quota': 12,
+                        'casual_sick_used': 0,
+                        'optional_holiday_quota': 5,
+                        'optional_holiday_used': 0
+                    }
                 )
                 if leave.leave_type == 'optional_holiday':
                     balance.optional_holiday_used = max(0, balance.optional_holiday_used + 1)
@@ -699,23 +705,18 @@ class LeaveViewSet(viewsets.ModelViewSet):
             try:
                 balance, _ = TrainerLeaveBalance.objects.get_or_create(
                     trainer_id=leave.trainer_id,
-                    defaults={'casual_sick_quota': 12, 'casual_sick_used': 0}
+                    defaults={
+                        'trainer_name': leave.trainer_name or 'Trainer',
+                        'casual_sick_quota': 12,
+                        'casual_sick_used': 0,
+                        'optional_holiday_quota': 5,
+                        'optional_holiday_used': 0
+                    }
                 )
                 balance.casual_sick_used = max(0, balance.casual_sick_used + 1)
                 balance.save()
             except Exception:
                 pass  # Don't fail the approval just because balance update failed
-
-        # Audit log
-        try:
-            LeaveAuditLog.objects.create(
-                leave=leave,
-                action=new_status,
-                performed_by='Admin',
-                notes=f'Leave {new_status} by admin.'
-            )
-        except Exception:
-            pass
 
         serializer = self.get_serializer(leave)
         return Response({'success': True, 'leave': serializer.data, 'message': f'Leave {new_status} successfully.'})
@@ -741,9 +742,18 @@ class LeaveViewSet(viewsets.ModelViewSet):
         if not trainer_id or new_quota is None:
             return Response({'success': False, 'error': 'trainer_id and new_quota are required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        trainer_obj = UserProfile.objects.filter(id=trainer_id).first()
+        trainer_name = trainer_obj.name if trainer_obj else 'Trainer'
+
         balance, _ = TrainerLeaveBalance.objects.get_or_create(
             trainer_id=trainer_id,
-            defaults={'casual_sick_quota': 12, 'casual_sick_used': 0}
+            defaults={
+                'trainer_name': trainer_name,
+                'casual_sick_quota': 12,
+                'casual_sick_used': 0,
+                'optional_holiday_quota': 5,
+                'optional_holiday_used': 0
+            }
         )
         balance.casual_sick_quota = int(new_quota)
         balance.save()
