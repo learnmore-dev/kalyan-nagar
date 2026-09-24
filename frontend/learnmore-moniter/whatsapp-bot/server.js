@@ -393,7 +393,7 @@ const server = http.createServer(async (req, res) => {
   // POST /send-message
   if (req.method === 'POST' && url.pathname === '/send-message') {
     const body = await getBody();
-    const { target, text } = body;
+    const { target, text, document, fileName, mimeType, image } = body;
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -408,14 +408,49 @@ const server = http.createServer(async (req, res) => {
     try {
       let jid = target;
       if (!jid.includes('@')) {
-        const clean = target.replace(/[^0-9]/g, '');
+        const clean = String(target).replace(/[^0-9]/g, '');
         jid = `${clean}@s.whatsapp.net`;
       }
 
-      const result = await sock.sendMessage(jid, { text });
+      let result;
+
+      if (document) {
+        // Send document (base64 encoded)
+        const base64Data = document.includes(',') ? document.split(',')[1] : document;
+        const docBuffer = Buffer.from(base64Data, 'base64');
+        const resolvedMime = mimeType || 'application/octet-stream';
+        const resolvedFileName = fileName || 'document';
+
+        if (text) {
+          // Send text message first, then document
+          await sock.sendMessage(jid, { text });
+        }
+        result = await sock.sendMessage(jid, {
+          document: docBuffer,
+          fileName: resolvedFileName,
+          mimetype: resolvedMime,
+        });
+      } else if (image) {
+        // Send image (base64 encoded)
+        const base64Data = image.includes(',') ? image.split(',')[1] : image;
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+
+        result = await sock.sendMessage(jid, {
+          image: imgBuffer,
+          caption: text || '',
+        });
+      } else if (text) {
+        // Plain text message
+        result = await sock.sendMessage(jid, { text });
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'No text, document, or image provided.' }));
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, result }));
     } catch (err) {
+      console.error('[send-message] Error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }

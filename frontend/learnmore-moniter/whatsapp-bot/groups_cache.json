@@ -56,6 +56,14 @@
     "isGroup": true
   },
   {
+    "id": "120363412621879782@g.us",
+    "name": "LMT-KN-SEP-OFF-SQL-10AM",
+    "size": 2,
+    "creation": 1790242347,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
     "id": "120363427425490197@g.us",
     "name": "Fast-learning-enquiry-portal",
     "size": 3,
@@ -140,6 +148,14 @@
     "name": "LMT-KN-AUG-ON-WD-PY-4PM",
     "size": 3,
     "creation": 1785842005,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363430718361995@g.us",
+    "name": "Rishab(developer)",
+    "size": 4,
+    "creation": 1790228408,
     "owner": "227754180128826@lid",
     "isGroup": true
   },
@@ -816,7 +832,7 @@
   {
     "id": "120363401662200926@g.us",
     "name": "Airforce 01/2026 Phase-2 Preparation (2) 📢",
-    "size": 391,
+    "size": 389,
     "creation": 1743053943,
     "owner": "97152311259242@lid",
     "isGroup": true

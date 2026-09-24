@@ -203,10 +203,12 @@ class WhatsAppService {
     groupName: string;
     inviteLink: string;
     success: boolean;
+    realGroupCreated: boolean;
   }> {
     const groupName = params.customGroupName?.trim() || params.batchName.trim();
-    let groupId = `120363${Date.now().toString().slice(-6)}@g.us`;
-    let inviteLink = `https://chat.whatsapp.com/invite/TM${Date.now().toString().slice(-6)}`;
+    let groupId = '';        // empty = no real group yet
+    let inviteLink = '';
+    let realGroupCreated = false;
 
     const participantsList: string[] = [];
     if (params.trainer?.phone) participantsList.push(params.trainer.phone);
@@ -223,16 +225,20 @@ class WhatsAppService {
       if (data && data.success && data.groupId) {
         groupId = data.groupId;
         if (data.inviteLink) inviteLink = data.inviteLink;
+        realGroupCreated = true;
       }
     } catch { }
 
-    this.botState.totalGroupsCreated += 1;
+    if (realGroupCreated) {
+      this.botState.totalGroupsCreated += 1;
+    }
 
     return {
       groupId,
       groupName,
       inviteLink,
-      success: true,
+      success: realGroupCreated,
+      realGroupCreated,
     };
   }
 
