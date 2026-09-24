@@ -425,36 +425,39 @@ const server = http.createServer(async (req, res) => {
         jid = `${clean}@s.whatsapp.net`;
       }
 
+      console.log(`[send-msg] jid=${jid} | doc=${!!document} | img=${!!image} | txt=${!!text}`);
+
       let result;
 
       if (document) {
-        // Send document (base64 encoded)
         const base64Data = document.includes(',') ? document.split(',')[1] : document;
         const docBuffer = Buffer.from(base64Data, 'base64');
         const resolvedMime = mimeType || 'application/octet-stream';
         const resolvedFileName = fileName || 'document';
+        console.log(`[send-msg] Sending doc: ${resolvedFileName} | mime: ${resolvedMime} | size: ${docBuffer.length} bytes`);
 
         if (text) {
-          // Send text message first, then document
           await sock.sendMessage(jid, { text });
+          console.log('[send-msg] Text sent, now sending document...');
         }
         result = await sock.sendMessage(jid, {
           document: docBuffer,
           fileName: resolvedFileName,
           mimetype: resolvedMime,
         });
+        console.log(`[send-msg] Document sent OK to ${jid}`);
       } else if (image) {
-        // Send image (base64 encoded)
         const base64Data = image.includes(',') ? image.split(',')[1] : image;
         const imgBuffer = Buffer.from(base64Data, 'base64');
-
+        console.log(`[send-msg] Sending image size: ${imgBuffer.length} bytes`);
         result = await sock.sendMessage(jid, {
           image: imgBuffer,
           caption: text || '',
         });
+        console.log(`[send-msg] Image sent OK to ${jid}`);
       } else if (text) {
-        // Plain text message
         result = await sock.sendMessage(jid, { text });
+        console.log(`[send-msg] Text sent OK to ${jid}`);
       } else {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ success: false, error: 'No text, document, or image provided.' }));
@@ -463,7 +466,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, result }));
     } catch (err) {
-      console.error('[send-message] Error:', err.message);
+      console.error('[send-msg] ERROR:', err.message, err.stack?.split('\n')[1] || '');
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
