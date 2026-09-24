@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Batch, User, Student, StudentStatus, StudentAttendanceRecord } from '@/lib/types';
 import { getStoredUser } from '@/lib/auth';
@@ -15,10 +15,6 @@ import {
   UserX,
   Plane,
   Sparkles,
-  Paperclip,
-  FileText,
-  Trash2,
-  UploadCloud,
   Quote,
   ChevronLeft,
   ChevronRight,
@@ -69,7 +65,6 @@ export default function TrainerAddSessionPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preSelectedBatchId = searchParams.get('batch') || '';
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Quotes Carousel State
   const [quoteIdx, setQuoteIdx] = useState(0);
@@ -95,14 +90,6 @@ export default function TrainerAddSessionPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [whatsappShareUrl, setWhatsappShareUrl] = useState<string | null>(null);
-
-  // Document / Attachment upload state
-  const [attachedFile, setAttachedFile] = useState<{
-    base64: string;
-    fileName: string;
-    mimeType: string;
-    sizeFormatted: string;
-  } | null>(null);
 
   const [students, setStudents] = useState<Student[]>([]);
   const [loadingStudents, setLoadingStudents] = useState<boolean>(false);
@@ -160,41 +147,6 @@ export default function TrainerAddSessionPage() {
 
     fetchStudents();
   }, [selectedBatchId]);
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const sizeInMB = file.size / (1024 * 1024);
-    if (sizeInMB > 15) {
-      alert('File size exceeds 15MB limit. Please choose a smaller file.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64String = reader.result as string;
-      const formattedSize =
-        file.size > 1024 * 1024
-          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-          : `${Math.round(file.size / 1024)} KB`;
-
-      setAttachedFile({
-        base64: base64String,
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        sizeFormatted: formattedSize,
-      });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveFile = () => {
-    setAttachedFile(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
 
   const handleStatusChange = (studentId: string, status: StudentStatus) => {
     setAttendanceState((prev) => ({
@@ -278,10 +230,8 @@ export default function TrainerAddSessionPage() {
           `🏷️ *Batch:* ${currentBatchObj?.name || 'Batch'}`,
           `📅 *Date:* ${sessionDate}`,
           `━━━━━━━━━━━━━━━━━━━━`,
-          `📝 *Topic Covered:* ${topicCovered}`,
-          `⏱️ *Hours:* ${hoursNum} hrs`,
-          `━━━━━━━━━━━━━━━━━━━━`,
-          `👨‍🏫 *Trainer:* ${user?.name || user?.username || 'Trainer'}`
+          `📌 *Topic Covered Today:*`,
+          `${topicCovered.trim()}`,
         ].join('\n');
         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(formattedMessage)}`;
         setWhatsappShareUrl(waUrl);
@@ -292,13 +242,6 @@ export default function TrainerAddSessionPage() {
               batch: currentBatchObj,
               topicCovered: topicCovered,
               date: sessionDate,
-              attachment: attachedFile
-                ? {
-                    document: attachedFile.base64,
-                    fileName: attachedFile.fileName,
-                    mimeType: attachedFile.mimeType,
-                  }
-                : undefined,
             });
           } catch {}
         }
@@ -307,16 +250,12 @@ export default function TrainerAddSessionPage() {
         setSuccessMsg(
           `Session saved successfully! ${
             autoSendWhatsApp
-              ? `Message & Document broadcasted to WhatsApp Group: "${groupLabel}"! 🚀`
+              ? `Topic Covered broadcasted to WhatsApp Group: "${groupLabel}"! 🚀`
               : ''
           }`
         );
 
         setTopicCovered('');
-        setAttachedFile(null);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
       }
     } catch {
       alert('Failed to save session');
@@ -374,7 +313,7 @@ export default function TrainerAddSessionPage() {
             </h1>
 
             <p className="text-xs sm:text-sm text-indigo-100/90 leading-relaxed font-normal">
-              Enter topics taught today and attach class documents or notes — auto-broadcasts directly to batch WhatsApp group in 1 click!
+              Enter topics taught today — auto-broadcasts directly to batch WhatsApp group in 1 click!
             </p>
           </div>
 
@@ -636,77 +575,7 @@ export default function TrainerAddSessionPage() {
             </div>
           </div>
 
-          {/* Section 4: Document & Notes Upload Studio */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-extrabold text-slate-500 uppercase tracking-wider">
-                <span className="h-5 w-1.5 rounded-full bg-indigo-600" />
-                <span>Step 4: Attach Notes / Code Document (Optional)</span>
-              </div>
-              <span className="text-[11px] font-bold text-slate-400">PDF, PPT, Word, ZIP, Images</span>
-            </div>
-
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-50/40 via-purple-50/20 to-white border border-indigo-200/80 space-y-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip"
-                onChange={handleFileUpload}
-                className="hidden"
-                id="sessionDocumentUpload"
-              />
-
-              {!attachedFile ? (
-                <label
-                  htmlFor="sessionDocumentUpload"
-                  className="flex flex-col items-center justify-center p-6 sm:p-8 border-2 border-dashed border-indigo-300/80 hover:border-indigo-600 rounded-2xl bg-white hover:bg-indigo-50/40 transition-all cursor-pointer text-center group shadow-xs hover:shadow-md"
-                >
-                  <div className="h-14 w-14 rounded-2xl bg-indigo-100/70 text-indigo-600 flex items-center justify-center group-hover:scale-110 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm mb-2.5">
-                    <UploadCloud className="h-7 w-7" />
-                  </div>
-                  <span className="text-sm font-extrabold text-indigo-950 group-hover:text-indigo-600 transition-colors">
-                    Click to Browse or Drop Class Document / Notes
-                  </span>
-                  <p className="text-xs text-slate-500 max-w-md mt-1">
-                    Attach notes, PDFs, or assignments — automatically sent directly into the batch WhatsApp group alongside the session message!
-                  </p>
-                  <div className="flex items-center gap-2 mt-3 text-[10px] font-extrabold text-indigo-700 bg-indigo-100/70 px-3 py-1 rounded-full">
-                    <span>PDF</span> • <span>DOCX</span> • <span>PPT</span> • <span>ZIP</span> • <span>Max 15 MB</span>
-                  </div>
-                </label>
-              ) : (
-                <div className="flex items-center justify-between p-4 bg-white rounded-2xl border-2 border-indigo-300 shadow-md">
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                      <FileText className="h-6 w-6" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-extrabold text-slate-900 truncate">
-                        {attachedFile.fileName}
-                      </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
-                        <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
-                          {attachedFile.sizeFormatted}
-                        </span>
-                        <span>• Ready to broadcast to WhatsApp</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleRemoveFile}
-                    className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 border border-rose-200 transition-all cursor-pointer hover:scale-105 active:scale-95 shrink-0"
-                    title="Remove Attached File"
-                  >
-                    <Trash2 className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Section 5: Student Attendance & Leaves */}
+          {/* Section 4: Student Attendance & Leaves */}
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200">
               <div className="flex items-center gap-2.5">
@@ -715,7 +584,7 @@ export default function TrainerAddSessionPage() {
                 </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight">
-                    Batch Student Attendance & Leaves ({students.length} Total)
+                    Step 4: Batch Student Attendance & Leaves ({students.length} Total)
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
                     Mark each enrolled student as Present, Absent, or Leave

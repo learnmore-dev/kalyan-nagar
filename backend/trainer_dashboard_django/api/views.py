@@ -934,7 +934,7 @@ def whatsapp_bot_gateway(request):
                 att_config.save()
                 return Response({'success': True, 'attendanceGroup': {'id': group_id, 'name': group_name}, 'message': 'Attendance group updated!'})
 
-        if action == 'refresh_groups':
+        if action in ['refresh_groups', 'get_groups']:
             try:
                 r = requests.get(f"{BAILEYS_URL}/groups?force=true", timeout=8)
                 if r.ok:

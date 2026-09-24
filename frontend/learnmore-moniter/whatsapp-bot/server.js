@@ -419,10 +419,23 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      let jid = target;
+      let jid = String(target || '').trim();
       if (!jid.includes('@')) {
-        const clean = String(target).replace(/[^0-9]/g, '');
-        jid = `${clean}@s.whatsapp.net`;
+        const targetClean = jid.toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Search in cached groups
+        const found = cachedGroups.find((g) => {
+          const gName = (g.name || g.subject || '').toLowerCase().trim();
+          const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+          return gName === jid.toLowerCase() || (cleanGName && (cleanGName === targetClean || cleanGName.includes(targetClean) || targetClean.includes(cleanGName)));
+        });
+
+        if (found && found.id) {
+          jid = found.id;
+          console.log(`[send-msg] Resolved group name "${target}" to group JID: ${jid}`);
+        } else {
+          const cleanNum = jid.replace(/[^0-9]/g, '');
+          jid = cleanNum.length >= 10 ? `${cleanNum.startsWith('91') ? cleanNum : '91' + cleanNum}@s.whatsapp.net` : `${cleanNum}@s.whatsapp.net`;
+        }
       }
 
       console.log(`[send-msg] jid=${jid} | doc=${!!document} | img=${!!image} | txt=${!!text}`);

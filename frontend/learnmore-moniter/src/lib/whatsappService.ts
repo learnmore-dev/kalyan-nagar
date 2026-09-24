@@ -57,32 +57,45 @@ async function findGroupJidByName(groupName: string): Promise<string | null> {
   const cleanTarget = targetLower.replace(/[^a-z0-9]/g, '');
 
   try {
-    const res = await fetch(DJANGO_WA_PROXY, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get_groups' }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.groups && Array.isArray(data.groups)) {
-        let match = data.groups.find((g: any) => {
-          const gName = (g.name || g.subject || '').toLowerCase().trim();
-          return gName === targetLower;
-        });
-        if (!match && cleanTarget) {
-          match = data.groups.find((g: any) => {
-            const gName = (g.name || g.subject || '').toLowerCase().trim();
-            const cleanGName = gName.replace(/[^a-z0-9]/g, '');
-            if (!cleanGName) return false;
-            return (
-              cleanGName === cleanTarget ||
-              cleanGName.includes(cleanTarget) ||
-              cleanTarget.includes(cleanGName)
-            );
-          });
-        }
-        if (match?.id) return match.id;
+    // 1. Try GET /api/whatsapp/bot first
+    let groups: any[] = [];
+    const getRes = await fetch(DJANGO_WA_PROXY);
+    if (getRes.ok) {
+      const data = await getRes.json();
+      groups = data.bot?.availableGroups || data.groups || [];
+    }
+
+    // 2. If empty, try POST get_groups
+    if (!groups.length) {
+      const postRes = await fetch(DJANGO_WA_PROXY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_groups' }),
+      });
+      if (postRes.ok) {
+        const data = await postRes.json();
+        groups = data.groups || [];
       }
+    }
+
+    if (Array.isArray(groups) && groups.length > 0) {
+      let match = groups.find((g: any) => {
+        const gName = (g.name || g.subject || '').toLowerCase().trim();
+        return gName === targetLower;
+      });
+      if (!match && cleanTarget) {
+        match = groups.find((g: any) => {
+          const gName = (g.name || g.subject || '').toLowerCase().trim();
+          const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+          if (!cleanGName) return false;
+          return (
+            cleanGName === cleanTarget ||
+            cleanGName.includes(cleanTarget) ||
+            cleanTarget.includes(cleanGName)
+          );
+        });
+      }
+      if (match?.id) return match.id;
     }
   } catch { }
   return null;
