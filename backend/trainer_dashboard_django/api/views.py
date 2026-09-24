@@ -635,44 +635,54 @@ class LeaveViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveSerializer
 
     def create(self, request, *args, **kwargs):
-        # Add trainer_name from UserProfile if not provided
-        data = request.data.copy()
-        if not data.get('trainer_name') and data.get('trainer_id'):
-            trainer = UserProfile.objects.filter(id=data['trainer_id']).first()
-            if trainer:
-                data['trainer_name'] = trainer.name
-                data['trainer'] = str(trainer.id)
-        elif not data.get('trainer_name') and data.get('trainer'):
-            trainer = UserProfile.objects.filter(id=data['trainer']).first()
-            if trainer:
-                data['trainer_name'] = trainer.name
+        try:
+            data = request.data.copy()
+            trainer_id = data.get('trainer_id') or data.get('trainer')
 
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        leave = serializer.save()
-
-        # If created directly as approved (e.g. Admin direct deduction), update balance
-        if leave.trainer_id and leave.status == 'approved':
-            try:
-                balance, _ = TrainerLeaveBalance.objects.get_or_create(
-                    trainer_id=leave.trainer_id,
-                    defaults={
-                        'trainer_name': leave.trainer_name or 'Trainer',
-                        'casual_sick_quota': 12,
-                        'casual_sick_used': 0,
-                        'optional_holiday_quota': 5,
-                        'optional_holiday_used': 0
-                    }
+            trainer = None
+            if trainer_id:
+                trainer = (
+                    UserProfile.objects.filter(id=trainer_id).first()
+                    or UserProfile.objects.filter(email=trainer_id).first()
+                    or UserProfile.objects.filter(username=trainer_id).first()
                 )
-                if leave.leave_type == 'optional_holiday':
-                    balance.optional_holiday_used = max(0, balance.optional_holiday_used + 1)
-                else:
-                    balance.casual_sick_used = max(0, balance.casual_sick_used + 1)
-                balance.save()
-            except Exception:
-                pass
 
-        return Response({'success': True, 'leave': serializer.data, 'message': 'Leave processed successfully!'}, status=status.HTTP_201_CREATED)
+            if not trainer:
+                trainer = UserProfile.objects.filter(role='trainer').first() or UserProfile.objects.first()
+
+            if trainer:
+                data['trainer'] = str(trainer.id)
+                if not data.get('trainer_name'):
+                    data['trainer_name'] = trainer.name
+
+            serializer = self.get_serializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            leave = serializer.save()
+
+            # If created directly as approved (e.g. Admin direct deduction), update balance
+            if leave.trainer_id and leave.status == 'approved':
+                try:
+                    balance, _ = TrainerLeaveBalance.objects.get_or_create(
+                        trainer_id=leave.trainer_id,
+                        defaults={
+                            'trainer_name': leave.trainer_name or (trainer.name if trainer else 'Trainer'),
+                            'casual_sick_quota': 12,
+                            'casual_sick_used': 0,
+                            'optional_holiday_quota': 5,
+                            'optional_holiday_used': 0
+                        }
+                    )
+                    if leave.leave_type == 'optional_holiday':
+                        balance.optional_holiday_used = max(0, balance.optional_holiday_used + 1)
+                    else:
+                        balance.casual_sick_used = max(0, balance.casual_sick_used + 1)
+                    balance.save()
+                except Exception:
+                    pass
+
+            return Response({'success': True, 'leave': serializer.data, 'message': 'Leave processed successfully!'}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     def list(self, request, *args, **kwargs):
         trainer_id = request.query_params.get('trainer_id')
