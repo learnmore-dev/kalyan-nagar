@@ -14,7 +14,7 @@ export interface User {
   created_at: string;
 }
 
-export type BatchType = 'training' | 'other';
+export type BatchType = 'training' | 'demo' | 'other';
 export type BatchStatus = 'ontime' | 'delay' | 'completed';
 
 export interface Batch {
