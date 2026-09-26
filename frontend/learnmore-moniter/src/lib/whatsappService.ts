@@ -551,7 +551,7 @@ class WhatsAppService {
   }
 
   public async sendJoinClassNotice(batch: Batch): Promise<{ success: boolean; messageText: string; deliveredTo?: string }> {
-    const text = 'hi guys please join class';
+    const text = 'hi guys please join meeting';
     let targetJid = batch.whatsapp_group_id;
 
     if (!targetJid || !targetJid.includes('@g.us')) {

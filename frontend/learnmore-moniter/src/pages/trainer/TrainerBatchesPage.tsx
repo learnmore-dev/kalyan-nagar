@@ -106,13 +106,13 @@ export default function TrainerBatchesPage() {
       await whatsappService.sendJoinClassNotice(batch);
       setSyncStatusMsg({
         id: batch.id,
-        text: `Notice "hi guys please join class" broadcasted to WhatsApp Group! 🚀`,
+        text: `Notice "hi guys please join meeting" broadcasted to WhatsApp Group! 🚀`,
         success: true,
       });
     } catch {
       setSyncStatusMsg({
         id: batch.id,
-        text: `Notice "hi guys please join class" broadcasted to WhatsApp Group! 🚀`,
+        text: `Notice "hi guys please join meeting" broadcasted to WhatsApp Group! 🚀`,
         success: true,
       });
     } finally {
@@ -764,7 +764,7 @@ export default function TrainerBatchesPage() {
                     onClick={() => handleSyncJoinClass(batch)}
                     disabled={syncingBatchId === batch.id}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                    title="Broadcast 'hi guys please join class' to WhatsApp group"
+                    title="Broadcast 'hi guys please join meeting' to WhatsApp group"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${syncingBatchId === batch.id ? 'animate-spin' : ''}`} />
                     {syncingBatchId === batch.id ? 'Syncing...' : 'Sync Notice'}
@@ -886,7 +886,7 @@ export default function TrainerBatchesPage() {
                             onClick={() => handleSyncJoinClass(batch)}
                             disabled={syncingBatchId === batch.id}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
-                            title="Broadcast 'hi guys please join class' to WhatsApp group"
+                            title="Broadcast 'hi guys please join meeting' to WhatsApp group"
                           >
                             <RefreshCw className={`h-3.5 w-3.5 ${syncingBatchId === batch.id ? 'animate-spin' : ''}`} />
                             {syncingBatchId === batch.id ? 'Syncing...' : 'Sync'}
