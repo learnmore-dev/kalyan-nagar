@@ -106,14 +106,51 @@ export default function TrainerDemosPage() {
     try {
       const searchName = u.name || u.username || 'test';
       const searchEmail = u.email || '';
-      const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}`;
-
-      const res = await fetch(url);
+      
+      let url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}`;
+      let res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setDemoMeetings(data);
+          return;
         }
+      }
+
+      // Fallback: Fetch demo batches from /api/batches/?batch_type=demo
+      const batchUrl = `/api/batches/?batch_type=demo&trainer=${encodeURIComponent(u.id)}`;
+      const batchRes = await fetch(batchUrl);
+      if (batchRes.ok) {
+        const batchData = await batchRes.json();
+        const batches = batchData.batches || batchData.results || (Array.isArray(batchData) ? batchData : []);
+        
+        const mappedDemos: DemoMeeting[] = batches.map((b: any, idx: number) => {
+          const notesStr = [
+            `Student Name: ${b.student_name || (b.name ? b.name.replace(/^DEMO-/, '').split('-')[0] : 'Student')}`,
+            `Mobile: ${b.student_phone || 'N/A'}`,
+            `Email: ${b.student_email || 'N/A'}`,
+            `Course: ${b.course_name || 'General'}`,
+            `Status: ${b.demo_status || 'Scheduled'}`,
+            `Training Mode: Online`,
+            `Branch: Main`,
+            `City: Bangalore`,
+            `Source: Website`,
+            `Next Follow-up: N/A`,
+            `Assign Counsellor: Admin`,
+            `Demo Status: ${b.demo_status || 'Scheduled'}`
+          ].join('\n');
+
+          return {
+            id: b.id || idx + 1,
+            title: b.name || `Demo: ${b.student_name}`,
+            meeting_link: b.demo_link || '',
+            scheduled_time: b.start_date ? `${b.start_date} ${b.timing || ''}` : new Date().toISOString(),
+            notes: notesStr,
+            trainer_name: b.trainer_name || u.name
+          };
+        });
+
+        setDemoMeetings(mappedDemos);
       }
     } catch (err) {
       console.error('Failed to fetch demo meetings:', err);
