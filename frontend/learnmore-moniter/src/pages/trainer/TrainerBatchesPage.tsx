@@ -131,7 +131,7 @@ export default function TrainerBatchesPage() {
         const data = await res.json();
         if (data.success) {
           const myBatches = (data.batches || []).filter(
-            (b: Batch) => b.trainer_id === u?.id || b.trainer_name?.toLowerCase() === u?.name?.toLowerCase()
+            (b: Batch) => (b.trainer_id === u?.id || b.trainer_name?.toLowerCase() === u?.name?.toLowerCase()) && b.batch_type !== 'demo'
           );
           setBatches(myBatches);
         }
