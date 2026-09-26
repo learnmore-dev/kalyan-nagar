@@ -40,6 +40,7 @@ class Course(models.Model):
 class Batch(models.Model):
     BATCH_TYPE_CHOICES = (
         ('training', 'Training'),
+        ('demo', 'Demo'),
         ('other', 'Other'),
     )
     STATUS_CHOICES = (
@@ -69,6 +70,13 @@ class Batch(models.Model):
     auto_whatsapp_group = models.BooleanField(default=True)
     timing = models.CharField(max_length=100, blank=True, null=True)
     classroom = models.CharField(max_length=100, blank=True, null=True)
+    # CRM Integration: enquiry ID from LMT-FINAL system
+    enquiry_id = models.CharField(max_length=100, blank=True, null=True, db_index=True)
+    demo_link = models.TextField(blank=True, null=True)
+    demo_status = models.CharField(max_length=30, blank=True, null=True)  # scheduled/done
+    student_name = models.CharField(max_length=150, blank=True, null=True)
+    student_phone = models.CharField(max_length=20, blank=True, null=True)
+    student_email = models.EmailField(blank=True, null=True)
 
     def __str__(self):
         return self.name
