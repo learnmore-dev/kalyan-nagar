@@ -26,6 +26,7 @@ const PREFETCH_MAP: Record<string, string[]> = {
   '/admin/dashboard':   ['/api/batches/', '/api/leaves', '/api/sessions', '/api/live-activity'],
   '/admin/courses':     ['/api/courses', '/api/syllabus'],
   '/admin/batches':     ['/api/batches/', '/api/courses', '/api/users?role=trainer'],
+  '/admin/demos':       ['/api/batches/?batch_type=demo', '/api/users?role=trainer'],
   '/admin/lectures':    ['/api/batches/'],
   '/admin/trainers':    ['/api/users?role=trainer'],
   '/admin/attendance':  ['/api/attendance/', '/api/users?role=trainer'],
@@ -50,6 +51,7 @@ const NAV_GROUPS = [
     links: [
       { href: '/admin/courses',   label: 'Courses & Syllabus', icon: GraduationCap },
       { href: '/admin/batches',   label: 'Batches',            icon: BookOpen },
+      { href: '/admin/demos',     label: 'Demo Management',     icon: Video },
       { href: '/admin/lectures',  label: 'Live & Lectures',    icon: Video },
     ],
   },

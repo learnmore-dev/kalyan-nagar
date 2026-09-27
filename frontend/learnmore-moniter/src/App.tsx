@@ -15,6 +15,7 @@ import LoginPage from '@/pages/login/LoginPage';
 import AdminDashboardPage from '@/pages/admin/AdminDashboardPage';
 import AdminAttendancePage from '@/pages/admin/AdminAttendancePage';
 import AdminBatchesPage from '@/pages/admin/AdminBatchesPage';
+import AdminDemosPage from '@/pages/admin/AdminDemosPage';
 import AdminCreateBatchPage from '@/pages/admin/AdminCreateBatchPage';
 import AdminCoursesPage from '@/pages/admin/AdminCoursesPage';
 import AdminHolidaysPage from '@/pages/admin/AdminHolidaysPage';
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="dashboard" element={<AdminDashboardPage />} />
           <Route path="attendance" element={<AdminAttendancePage />} />
           <Route path="batches" element={<AdminBatchesPage />} />
+          <Route path="demos" element={<AdminDemosPage />} />
           <Route path="batches/:id" element={<AdminBatchDetailPage />} />
           <Route path="batches/create" element={<AdminCreateBatchPage />} />
           <Route path="courses" element={<AdminCoursesPage />} />
