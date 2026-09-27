@@ -55,7 +55,9 @@ export default function AdminBatchesPage() {
       ]);
       const bData = await bRes.json();
       const tData = await tRes.json();
-      if (bData.success) setBatches(bData.batches || []);
+      if (bData.success) {
+        setBatches((bData.batches || []).filter((batch: Batch) => batch.batch_type !== 'demo'));
+      }
       if (tData.success && tData.users) setTrainers(tData.users || []);
     } catch {
       // silent

@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
       setLiveActivities(actList);
 
       const batList = Array.isArray(batData) ? batData : (batData?.batches || []);
-      setBatches(batList);
+      setBatches(batList.filter((batch: Batch) => batch.batch_type !== 'demo'));
 
       const leaveList = Array.isArray(leaveData) ? leaveData : (leaveData?.leaves || []);
       setLeaves(leaveList);
