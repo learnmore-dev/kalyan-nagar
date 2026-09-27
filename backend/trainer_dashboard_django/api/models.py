@@ -61,6 +61,7 @@ class Batch(models.Model):
     is_completed = models.BooleanField(default=False)
     completed_at = models.DateTimeField(blank=True, null=True)
     batch_type = models.CharField(max_length=20, choices=BATCH_TYPE_CHOICES, default='training')
+    branch = models.CharField(max_length=100, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     

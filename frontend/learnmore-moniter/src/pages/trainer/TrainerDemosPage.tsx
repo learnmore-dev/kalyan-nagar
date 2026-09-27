@@ -132,7 +132,7 @@ export default function TrainerDemosPage() {
             `Course: ${b.course_name || 'General'}`,
             `Status: ${b.demo_status || 'Scheduled'}`,
             `Training Mode: Online`,
-            `Branch: Main`,
+            `Branch: ${b.branch || b.branch_name || 'General'}`,
             `City: Bangalore`,
             `Source: Website`,
             `Next Follow-up: N/A`,
