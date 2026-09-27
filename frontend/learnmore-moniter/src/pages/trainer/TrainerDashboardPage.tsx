@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getStoredUser } from '@/lib/auth';
 import { User, Batch, WorkSession, TrainerAttendance } from '@/lib/types';
+import { mergeTrainerDemoRecords, TrainerDemoMeeting } from '@/lib/demoUtils';
 import {
   Camera,
   BookOpen,
@@ -101,22 +102,13 @@ function PolicySection({ title, color, children }: { title: string; color: strin
   );
 }
 
-interface DemoMeeting {
-  id: number;
-  title: string;
-  meeting_link: string;
-  scheduled_time: string;
-  notes?: string;
-  trainer_name?: string;
-}
-
 export default function TrainerDashboardPage() {
   const navigate = useNavigate();
   const [user, setUser]               = useState<User | null>(null);
   const [batches, setBatches]         = useState<Batch[]>([]);
   const [sessions, setSessions]       = useState<WorkSession[]>([]);
   const [attendances, setAttendances] = useState<TrainerAttendance[]>([]);
-  const [demoMeetings, setDemoMeetings] = useState<DemoMeeting[]>([]);
+  const [demoMeetings, setDemoMeetings] = useState<TrainerDemoMeeting[]>([]);
   const [todayAttendance, setTodayAttendance] = useState<any>(null);
   const [batchFilter, setBatchFilter] = useState<'active'|'all'>('active');
   const [showRulesModal, setShowRulesModal] = useState(false);
@@ -145,6 +137,7 @@ export default function TrainerDashboardPage() {
         const searchEmail = u.email || '';
         const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}`;
         const todayStr = new Date().toISOString().split('T')[0];
+        let assignedDemoBatches: Batch[] = [];
 
         const [bRes, sRes, mRes, aRes, allAttRes] = await Promise.all([
           fetch(`/api/batches/?trainer_id=${u.id}`).catch(() => null),
@@ -157,19 +150,27 @@ export default function TrainerDashboardPage() {
         if (bRes?.ok) {
           const bData = await bRes.json();
           if (bData.success) {
-            setBatches((bData.batches || []).filter(
+            const trainerBatches = (bData.batches || []).filter(
               (b: Batch) => b.trainer_id === u.id || b.trainer_name?.toLowerCase() === u.name?.toLowerCase()
-            ));
+            );
+            assignedDemoBatches = trainerBatches.filter((batch: Batch) => batch.batch_type === 'demo');
+            setBatches(trainerBatches.filter((batch: Batch) => batch.batch_type !== 'demo'));
           }
         }
         if (sRes?.ok) {
           const sData = await sRes.json();
           if (sData.success) setSessions((sData.sessions || []).filter((s: WorkSession) => s.trainer_id === u.id));
         }
+        let trainerMeetings: TrainerDemoMeeting[] = [];
         if (mRes?.ok) {
           const mData = await mRes.json();
-          if (Array.isArray(mData)) setDemoMeetings(mData);
+          if (Array.isArray(mData)) trainerMeetings = mData;
         }
+        setDemoMeetings(mergeTrainerDemoRecords(
+          trainerMeetings,
+          assignedDemoBatches,
+          u.name || u.username || 'Trainer',
+        ));
         if (aRes?.ok) {
           const aData = await aRes.json();
           if (aData.success && aData.attendance) setTodayAttendance(aData.attendance);

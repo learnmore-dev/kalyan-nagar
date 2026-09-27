@@ -42,6 +42,13 @@ export interface Batch {
   auto_whatsapp_group?: boolean;
   timing?: string;
   classroom?: string;
+  enquiry_id?: string | null;
+  demo_link?: string | null;
+  demo_status?: string | null;
+  student_name?: string | null;
+  student_phone?: string | null;
+  student_email?: string | null;
+  branch?: string | null;
   completed_hours?: number;
   code?: string;
   status?: string;
