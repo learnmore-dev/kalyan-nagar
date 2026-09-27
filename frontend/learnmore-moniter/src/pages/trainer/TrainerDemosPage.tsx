@@ -118,7 +118,7 @@ export default function TrainerDemosPage() {
       }
 
       // Fallback: Fetch demo batches from /api/batches/?batch_type=demo
-      const batchUrl = `/api/batches/?batch_type=demo&trainer=${encodeURIComponent(u.id)}`;
+      const batchUrl = `/api/batches/?batch_type=demo&trainer_id=${encodeURIComponent(u.id)}`;
       const batchRes = await fetch(batchUrl);
       if (batchRes.ok) {
         const batchData = await batchRes.json();

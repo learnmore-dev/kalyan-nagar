@@ -233,10 +233,16 @@ class BatchViewSet(viewsets.ModelViewSet):
     serializer_class = BatchSerializer
 
     def list(self, request, *args, **kwargs):
-        trainer_id = request.query_params.get('trainer_id')
         queryset = self.get_queryset()
+        trainer_id = request.query_params.get('trainer_id') or request.query_params.get('trainer')
+        batch_type = request.query_params.get('batch_type')
+        enquiry_id = request.query_params.get('enquiry_id')
         if trainer_id:
             queryset = queryset.filter(trainer_id=trainer_id)
+        if batch_type:
+            queryset = queryset.filter(batch_type=batch_type)
+        if enquiry_id:
+            queryset = queryset.filter(enquiry_id=enquiry_id)
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'batches': serializer.data})
 
