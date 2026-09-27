@@ -98,8 +98,9 @@ export default function TrainerDemosPage() {
     try {
       const searchName = u.name || u.username || 'test';
       const searchEmail = u.email || '';
+      const searchPhone = u.phone || '';
       
-      const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}`;
+      const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}${searchPhone ? `&phone=${encodeURIComponent(searchPhone)}` : ''}`;
       const batchUrl = `/api/batches/?batch_type=demo&trainer_id=${encodeURIComponent(u.id)}`;
       const [meetingResponse, batchResponse] = await Promise.all([
         fetch(url).catch(() => null),

@@ -135,7 +135,8 @@ export default function TrainerDashboardPage() {
       try {
         const searchName  = u.name || u.username || 'test';
         const searchEmail = u.email || '';
-        const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}`;
+        const searchPhone = u.phone || '';
+        const url = `/api/external/trainer-meetings/?name=${encodeURIComponent(searchName)}${searchEmail ? `&email=${encodeURIComponent(searchEmail)}` : ''}${searchPhone ? `&phone=${encodeURIComponent(searchPhone)}` : ''}`;
         const todayStr = new Date().toISOString().split('T')[0];
         let assignedDemoBatches: Batch[] = [];
 
