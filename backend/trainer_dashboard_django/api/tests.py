@@ -1,5 +1,7 @@
 from django.contrib.auth.models import User
 from django.test import TestCase
+from types import SimpleNamespace
+from unittest.mock import patch
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from .models import Batch, UserProfile
@@ -39,3 +41,47 @@ class BatchListFilterTests(TestCase):
             {batch['id'] for batch in response.data['batches']},
             {str(self.demo_batch.id), str(Batch.objects.get(name='Trainer One Class').id)},
         )
+
+
+class BatchCreateWhatsAppTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.auth_user = User.objects.create_user(username='batch-create-test')
+        self.trainer = UserProfile.objects.create(username='demo-trainer', name='Demo Trainer')
+
+    @patch('requests.post')
+    def test_demo_batch_never_creates_whatsapp_group(self, post_request):
+        request = self.factory.post('/api/batches/', {
+            'name': 'DEMO-Test-Student',
+            'batch_type': 'demo',
+            'trainer': self.trainer.id,
+            'auto_whatsapp_group': True,
+            'student_name': 'Test Student',
+        }, format='json')
+        force_authenticate(request, user=self.auth_user)
+
+        response = BatchViewSet.as_view({'post': 'create'})(request)
+
+        self.assertEqual(response.status_code, 201)
+        post_request.assert_not_called()
+
+    @patch('requests.post')
+    def test_regular_batch_still_creates_whatsapp_group(self, post_request):
+        self.trainer.phone = '+911234567890'
+        self.trainer.save(update_fields=['phone'])
+        post_request.return_value = SimpleNamespace(
+            ok=True,
+            json=lambda: {'success': True, 'groupId': 'regular-group', 'inviteLink': 'https://chat.whatsapp.com/invite/test'},
+        )
+        request = self.factory.post('/api/batches/', {
+            'name': 'Python Batch',
+            'batch_type': 'training',
+            'trainer': self.trainer.id,
+        }, format='json')
+        force_authenticate(request, user=self.auth_user)
+
+        response = BatchViewSet.as_view({'post': 'create'})(request)
+
+        self.assertEqual(response.status_code, 201)
+        post_request.assert_called_once()
+        self.assertEqual(response.data['whatsapp']['groupId'], 'regular-group')

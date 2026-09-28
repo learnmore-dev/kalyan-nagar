@@ -280,7 +280,7 @@ class BatchViewSet(viewsets.ModelViewSet):
 
         # Trigger WhatsApp Group creation via Baileys API
         whatsapp_info = None
-        auto_whatsapp = request.data.get('auto_whatsapp_group', True)
+        auto_whatsapp = batch.batch_type != 'demo' and request.data.get('auto_whatsapp_group', True)
         if auto_whatsapp:
             participants = []
             if batch.trainer and batch.trainer.phone:
