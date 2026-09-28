@@ -57,8 +57,8 @@ export default function AdminTrainersPage() {
     }
     setSaving(true);
     try {
-      const res = await fetch('/api/users', {
-        method: 'PUT',
+      const res = await fetch(`/api/users/${trainerId}/`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: trainerId,
