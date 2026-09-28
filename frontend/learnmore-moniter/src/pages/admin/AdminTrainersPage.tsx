@@ -68,13 +68,21 @@ export default function AdminTrainersPage() {
         }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
+      // Django REST Framework returns the updated trainer object for PATCH,
+      // while older API handlers may wrap it in { success: true }.
+      if (res.ok) {
+        setTrainers((current) => current.map((trainer) =>
+          trainer.id === trainerId
+            ? { ...trainer, name: newName.trim(), email: newEmail.trim(), phone: newPhone.trim() }
+            : trainer,
+        ));
         setNotice('Trainer details updated successfully.');
         setEditingTrainerId(null);
         fetchData();
         setTimeout(() => setNotice(null), 3000);
       } else {
-        setNotice(data.error || 'Failed to update trainer details.');
+        const errorMessage = data.error || Object.values(data).flat().join(' ') || 'Failed to update trainer details.';
+        setNotice(errorMessage);
       }
     } catch {
       setNotice('Failed to update trainer details. Please try again.');
