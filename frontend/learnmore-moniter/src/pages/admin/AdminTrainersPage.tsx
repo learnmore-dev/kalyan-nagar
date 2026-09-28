@@ -7,6 +7,8 @@ export default function AdminTrainersPage() {
   const [trainers, setTrainers] = useState<User[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [editingTrainerId, setEditingTrainerId] = useState<string | null>(null);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,11 +45,16 @@ export default function AdminTrainersPage() {
 
   const handleStartEdit = (trainer: User) => {
     setEditingTrainerId(trainer.id);
+    setNewName(trainer.name || '');
+    setNewEmail(trainer.email || '');
     setNewPhone(trainer.phone || '+91 ');
   };
 
-  const handleSavePhone = async (trainerId: string) => {
-    if (!newPhone.trim()) return;
+  const handleSaveProfile = async (trainerId: string) => {
+    if (!newName.trim() || !newEmail.trim() || !newPhone.trim()) {
+      setNotice('Name, email, and mobile number are required.');
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch('/api/users', {
@@ -55,18 +62,22 @@ export default function AdminTrainersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: trainerId,
+          name: newName.trim(),
+          email: newEmail.trim(),
           phone: newPhone.trim(),
         }),
       });
       const data = await res.json();
-      if (data.success) {
-        setNotice('✅ WhatsApp Mobile Number Updated Successfully!');
+      if (res.ok && data.success) {
+        setNotice('Trainer details updated successfully.');
         setEditingTrainerId(null);
         fetchData();
         setTimeout(() => setNotice(null), 3000);
+      } else {
+        setNotice(data.error || 'Failed to update trainer details.');
       }
     } catch {
-      // silent
+      setNotice('Failed to update trainer details. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -126,7 +137,7 @@ export default function AdminTrainersPage() {
                   <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-emerald-950 flex items-center gap-1.5">
-                        <MessageSquare className="h-3.5 w-3.5 text-[#25D366]" /> WhatsApp Mobile
+                        <MessageSquare className="h-3.5 w-3.5 text-[#25D366]" /> Trainer Details
                       </span>
                       {!isEditing && (
                         <button
@@ -139,29 +150,47 @@ export default function AdminTrainersPage() {
                     </div>
 
                     {isEditing ? (
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="space-y-2 pt-1">
+                        <input
+                          type="text"
+                          value={newName}
+                          onChange={(e) => setNewName(e.target.value)}
+                          placeholder="Trainer name"
+                          aria-label="Trainer name"
+                          className="w-full rounded-lg border border-emerald-400 bg-white px-2.5 py-2 text-xs text-slate-800 focus:outline-none"
+                        />
+                        <input
+                          type="email"
+                          value={newEmail}
+                          onChange={(e) => setNewEmail(e.target.value)}
+                          placeholder="Email address"
+                          aria-label="Trainer email"
+                          className="w-full rounded-lg border border-emerald-400 bg-white px-2.5 py-2 text-xs text-slate-800 focus:outline-none"
+                        />
                         <input
                           type="tel"
                           value={newPhone}
                           onChange={(e) => setNewPhone(e.target.value)}
                           placeholder="+91 98765 43210"
-                          className="flex-1 rounded-lg border border-emerald-400 bg-white px-2.5 py-1 text-xs text-slate-800 font-mono focus:outline-none"
+                          className="w-full rounded-lg border border-emerald-400 bg-white px-2.5 py-2 text-xs text-slate-800 font-mono focus:outline-none"
                         />
-                        <button
-                          onClick={() => handleSavePhone(trainer.id)}
-                          disabled={saving}
-                          className="p-1.5 rounded-lg bg-[#25D366] hover:bg-[#1eb855] text-white text-xs cursor-pointer"
-                          title="Save"
-                        >
-                          <Check className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setEditingTrainerId(null)}
-                          className="p-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs cursor-pointer"
-                          title="Cancel"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleSaveProfile(trainer.id)}
+                            disabled={saving}
+                            className="inline-flex items-center gap-1 rounded-lg bg-[#25D366] hover:bg-[#1eb855] px-3 py-1.5 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+                            title="Save"
+                          >
+                            <Check className="h-3.5 w-3.5" /> Save
+                          </button>
+                          <button
+                            onClick={() => setEditingTrainerId(null)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-slate-200 hover:bg-slate-300 px-3 py-1.5 text-slate-700 text-xs font-bold cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="h-3.5 w-3.5" /> Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="font-mono text-xs font-bold text-slate-800 flex items-center justify-between">
@@ -176,10 +205,10 @@ export default function AdminTrainersPage() {
                   </div>
 
                   <div className="space-y-2 text-xs text-slate-600">
-                    <div className="flex items-center gap-2">
+                    {!isEditing && <div className="flex items-center gap-2">
                       <Mail className="h-3.5 w-3.5 text-slate-400" />
                       <span>{trainer.email}</span>
-                    </div>
+                    </div>}
                     <div className="flex items-center gap-2">
                       <BookOpen className="h-3.5 w-3.5 text-slate-400" />
                       <span><strong>{assignedBatches.length}</strong> Active Batches Assigned</span>
