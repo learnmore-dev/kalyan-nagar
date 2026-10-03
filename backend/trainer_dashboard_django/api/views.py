@@ -26,6 +26,7 @@ from .models import (
     WhatsAppGroup,
     SupportThread,
     SupportMessage,
+    PasswordResetOTP,
 )
 from .serializers import (
     UserProfileSerializer,
@@ -152,70 +153,262 @@ def auth_login_view(request):
     password = str(request.data.get('password') or '').strip()
 
     if not username:
-        return Response({'success': False, 'error': 'Username is required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'success': False, 'error': 'Username or email is required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not password:
+        return Response({'success': False, 'error': 'Password is required'}, status=status.HTTP_400_BAD_REQUEST)
 
     from django.contrib.auth import authenticate
     from django.contrib.auth.models import User
+    from django.contrib.auth.hashers import check_password
 
-    # 1. Try Django auth_user standard authentication
-    django_user = authenticate(username=username, password=password)
-    if not django_user:
-        u_obj = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
-        if u_obj and u_obj.check_password(password):
-            django_user = u_obj
+    # 1. Search for matching UserProfile
+    user = UserProfile.objects.filter(
+        Q(username__iexact=username) | Q(email__iexact=username) | Q(name__iexact=username) | Q(phone__iexact=username)
+    ).first()
 
-    if django_user:
-        role = 'admin' if (django_user.is_staff or django_user.is_superuser) else 'trainer'
-        profile = UserProfile.objects.filter(username=django_user.username).first()
-        if not profile:
-            profile = UserProfile.objects.create(
-                id=f"usr_{django_user.username}",
-                username=django_user.username,
-                name=django_user.get_full_name() or django_user.username,
-                email=django_user.email or f"{django_user.username}@institute.edu",
+    # 2. Search for matching Django User
+    dj_user = User.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).first()
+    if not user and dj_user:
+        user = UserProfile.objects.filter(username__iexact=dj_user.username).first()
+
+    is_valid = False
+
+    if user:
+        # Check strictly against the user's current password
+        if user.password:
+            if user.password.strip() == password:
+                is_valid = True
+            else:
+                try:
+                    if check_password(password, user.password):
+                        is_valid = True
+                except Exception:
+                    pass
+        elif dj_user and dj_user.password:
+            if dj_user.check_password(password):
+                is_valid = True
+        else:
+            # Only if account has no password set at all, allow default initial login
+            if password in ['trainer', 'admin', '12345']:
+                is_valid = True
+
+    elif dj_user:
+        if dj_user.check_password(password):
+            is_valid = True
+
+    if is_valid:
+        if not user and dj_user:
+            role = 'admin' if (dj_user.is_staff or dj_user.is_superuser) else 'trainer'
+            user = UserProfile.objects.create(
+                id=f"usr_{dj_user.username}",
+                username=dj_user.username,
+                name=dj_user.get_full_name() or dj_user.username,
+                email=dj_user.email or f"{dj_user.username}@institute.edu",
                 role=role,
                 password=password,
                 designation='Director / Management' if role == 'admin' else 'Faculty Trainer'
             )
-        else:
-            profile.role = role
-            if password:
-                profile.password = password
-            profile.save()
 
-        serializer = UserProfileSerializer(profile)
-        return Response({'success': True, 'user': serializer.data, 'message': 'Login successful'})
-
-    # 2. Try UserProfile database lookup
-    user = UserProfile.objects.filter(
-        Q(username__iexact=username) | Q(email__iexact=username) | Q(name__iexact=username)
-    ).first()
-
-    if user:
-        is_valid_pw = False
-        if not user.password:
-            is_valid_pw = True
-        elif user.password.strip() == password:
-            is_valid_pw = True
-        elif password and (password == user.password.strip() or (not user.password and password in ['trainer', 'admin'])):
-            is_valid_pw = True
-
-        if is_valid_pw:
-            # Keep Django auth_user in sync so Django Admin works too
-            auth_u, _ = User.objects.get_or_create(username=user.username, defaults={
-                'email': user.email or '',
-                'first_name': user.name,
-                'is_staff': (user.role == 'admin'),
-                'is_superuser': (user.role == 'admin'),
-            })
-            if password:
-                auth_u.set_password(password)
-                auth_u.save()
+        if user:
+            # Sync new password to both records
+            user.password = password
+            user.save()
+            if dj_user:
+                dj_user.set_password(password)
+                dj_user.save()
 
             serializer = UserProfileSerializer(user)
             return Response({'success': True, 'user': serializer.data, 'message': 'Login successful'})
 
-    return Response({'success': False, 'error': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
+    return Response({'success': False, 'error': 'Invalid username or password. Please check your credentials.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+@api_view(['POST'])
+@csrf_exempt
+def auth_forgot_password_request_view(request):
+    import random
+    from datetime import timedelta
+    from django.core.mail import send_mail
+    from django.contrib.auth.models import User
+
+    identifier = str(request.data.get('identifier') or request.data.get('username') or request.data.get('email') or '').strip()
+    if not identifier:
+        return Response({'success': False, 'error': 'Please enter your username or registered email.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Find user profile
+    user = UserProfile.objects.filter(
+        Q(username__iexact=identifier) | Q(email__iexact=identifier) | Q(phone__iexact=identifier)
+    ).first()
+
+    # Fallback to Django User
+    if not user:
+        dj_u = User.objects.filter(Q(username__iexact=identifier) | Q(email__iexact=identifier)).first()
+        if dj_u:
+            user = UserProfile.objects.filter(username=dj_u.username).first()
+            if not user:
+                user = UserProfile.objects.create(
+                    id=f'usr_{dj_u.username}',
+                    username=dj_u.username,
+                    name=dj_u.get_full_name() or dj_u.username,
+                    email=dj_u.email,
+                    role='admin' if (dj_u.is_staff or dj_u.is_superuser) else 'trainer'
+                )
+
+    if not user:
+        return Response({'success': False, 'error': f'No account found matching "{identifier}". Please check and try again.'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Invalidate previous unused OTPs for this user
+    PasswordResetOTP.objects.filter(user=user, is_used=False).update(is_used=True)
+
+    # Generate 6-digit OTP code
+    otp_code = f'{random.randint(100000, 999999)}'
+    reset_token = str(uuid.uuid4())
+    expires_at = timezone.now() + timedelta(minutes=15)
+
+    otp_record = PasswordResetOTP.objects.create(
+        id=f'otp_{uuid.uuid4().hex[:12]}',
+        user=user,
+        otp=otp_code,
+        token=reset_token,
+        expires_at=expires_at,
+        is_used=False
+    )
+
+    # Format masked email and phone
+    masked_email = None
+    if user.email and '@' in user.email:
+        parts = user.email.split('@')
+        name_part = parts[0]
+        masked_name = name_part[0] + '***' + (name_part[-1] if len(name_part) > 1 else '')
+        masked_email = f'{masked_name}@{parts[1]}'
+
+    masked_phone = None
+    if user.phone and len(user.phone) >= 4:
+        masked_phone = '*' * (len(user.phone) - 4) + user.phone[-4:]
+
+    # Send email with 6-digit OTP code to user's registered email
+    email_sent = False
+    if user.email:
+        try:
+            subject = f'Password Reset Code ({otp_code}) - Learnmore Technologies'
+            plain_msg = f'Hello {user.name},\n\nYour OTP verification code to reset your password is: {otp_code}\n\nThis code is valid for 15 minutes.\nIf you did not request this, please ignore this email.\n\nRegards,\nLearnmore Technologies Team'
+            html_msg = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <div style="display: inline-block; padding: 10px 16px; background: linear-gradient(135deg, #2563eb, #4f46e5); color: white; font-weight: 800; font-size: 18px; border-radius: 12px;">LT</div>
+                    <h2 style="margin: 12px 0 4px; color: #0f172a; font-size: 20px;">Learnmore Technologies</h2>
+                    <p style="margin: 0; color: #64748b; font-size: 13px;">Password Reset Verification Code</p>
+                </div>
+                <p style="color: #334155; font-size: 14px; line-height: 1.6;">Hello <strong>{user.name}</strong>,</p>
+                <p style="color: #334155; font-size: 14px; line-height: 1.6;">We received a request to reset your password. Use the verification code below to set a new password:</p>
+                <div style="margin: 24px 0; text-align: center;">
+                    <div style="display: inline-block; padding: 14px 32px; background: #f8fafc; border: 2px dashed #2563eb; border-radius: 12px; font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #2563eb; font-family: monospace;">{otp_code}</div>
+                </div>
+                <p style="color: #64748b; font-size: 12px; line-height: 1.5;">⏱ This code is valid for <strong>15 minutes</strong>. If you did not request this, you can safely ignore this email.</p>
+                <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 20px 0;" />
+                <p style="color: #94a3b8; font-size: 11px; text-align: center; margin: 0;">Learnmore Technologies · Automated Notification System</p>
+            </div>
+            """
+            from_email = 'Learnmore Technologies <kanzariyapratik124@gmail.com>'
+            send_mail(subject, plain_msg, from_email, [user.email], html_message=html_msg, fail_silently=False)
+            email_sent = True
+        except Exception as e:
+            print(f'[MAIL] Error sending reset email: {e}')
+
+    return Response({
+        'success': True,
+        'message': f'Verification code sent to {masked_email or user.email}.' if email_sent else f'Account verified for {user.name}.',
+        'token': reset_token,
+        'username': user.username,
+        'name': user.name,
+        'masked_email': masked_email,
+        'masked_phone': masked_phone
+    })
+
+
+@api_view(['POST'])
+@csrf_exempt
+def auth_verify_otp_view(request):
+    token = str(request.data.get('token') or '').strip()
+    identifier = str(request.data.get('identifier') or request.data.get('username') or '').strip()
+    otp = str(request.data.get('otp') or '').strip()
+
+    if not otp:
+        return Response({'success': False, 'error': 'Please enter the 6-digit OTP code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    query = Q(otp=otp, is_used=False)
+    if token:
+        query &= Q(token=token)
+    elif identifier:
+        query &= (Q(user__username__iexact=identifier) | Q(user__email__iexact=identifier))
+
+    otp_record = PasswordResetOTP.objects.filter(query).order_by('-created_at').first()
+
+    if not otp_record:
+        return Response({'success': False, 'error': 'Invalid or expired OTP code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if otp_record.expires_at < timezone.now():
+        return Response({'success': False, 'error': 'This OTP has expired. Please request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({
+        'success': True,
+        'message': 'OTP verified successfully.',
+        'token': otp_record.token,
+        'username': otp_record.user.username
+    })
+
+
+@api_view(['POST'])
+@csrf_exempt
+def auth_reset_password_view(request):
+    token = str(request.data.get('token') or '').strip()
+    identifier = str(request.data.get('identifier') or request.data.get('username') or '').strip()
+    otp = str(request.data.get('otp') or '').strip()
+    new_password = str(request.data.get('new_password') or request.data.get('password') or '').strip()
+
+    if not new_password:
+        return Response({'success': False, 'error': 'Please enter a new password.'}, status=status.HTTP_400_BAD_REQUEST)
+    if len(new_password) < 4:
+        return Response({'success': False, 'error': 'Password must be at least 4 characters.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    query = Q(is_used=False)
+    if token:
+        query &= Q(token=token)
+    if otp:
+        query &= Q(otp=otp)
+    elif identifier:
+        query &= (Q(user__username__iexact=identifier) | Q(user__email__iexact=identifier))
+
+    otp_record = PasswordResetOTP.objects.filter(query).order_by('-created_at').first()
+
+    if not otp_record:
+        return Response({'success': False, 'error': 'Invalid or expired reset session. Please request a new code.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if otp_record.expires_at < timezone.now():
+        return Response({'success': False, 'error': 'Reset code has expired. Please request a new one.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = otp_record.user
+    user.password = new_password
+    user.save()
+
+    try:
+        from django.contrib.auth.models import User
+        dj_user = User.objects.filter(username=user.username).first()
+        if dj_user:
+            dj_user.set_password(new_password)
+            dj_user.save()
+    except Exception as e:
+        print(f'[AUTH] Error syncing Django User password: {e}')
+
+    otp_record.is_used = True
+    otp_record.save()
+
+    return Response({
+        'success': True,
+        'message': 'Password has been reset successfully! You can now log in with your new password.',
+        'username': user.username
+    })
+
 
 
 class CourseViewSet(viewsets.ModelViewSet):
@@ -1119,7 +1312,112 @@ def whatsapp_bot_gateway(request):
             except Exception as e:
                 return Response({'success': False, 'error': str(e)})
 
+        # ─── update_group_participants: add/remove participants in WhatsApp group ───
+        if action == 'update_group_participants':
+            group_id = request.data.get('group_id') or request.data.get('groupId') or ''
+            participants = request.data.get('participants') or []
+            sub_action = request.data.get('sub_action') or request.data.get('operation') or 'add'
+            try:
+                r = requests.post(f"{BAILEYS_URL}/group-participants", json={'groupId': group_id, 'participants': participants, 'action': sub_action}, timeout=20)
+                if r.ok:
+                    return Response(r.json())
+                return Response({'success': False, 'error': f'Baileys HTTP {r.status_code}'})
+            except requests.exceptions.ConnectionError:
+                return Response({'success': False, 'error': 'WhatsApp Bot is not running on server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            except Exception as e:
+                return Response({'success': False, 'error': str(e)})
+
         return Response({'success': False, 'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET'])
+@csrf_exempt
+def external_trainer_meetings_view(request):
+    """
+    CRM trainer meetings endpoint (/api/external/trainer-meetings/)
+    Returns assigned demo meetings for the trainer with sensitive phone/email sanitized.
+    """
+    search_name = str(request.query_params.get('name') or request.query_params.get('trainer') or 'test').strip()
+    search_email = str(request.query_params.get('email') or '').strip()
+
+    trainer = UserProfile.objects.filter(
+        Q(username__iexact=search_name) | Q(name__iexact=search_name) | Q(email__iexact=search_email)
+    ).first()
+
+    t_name = trainer.name if trainer else (search_name.capitalize() if search_name else 'Test Trainer')
+
+    demo_batches = Batch.objects.filter(batch_type='demo')
+    if trainer:
+        demo_batches = demo_batches.filter(Q(trainer=trainer) | Q(trainer_name__iexact=trainer.name))
+
+    results = []
+
+    for b in demo_batches:
+        b_branch = b.branch or 'Kalyan Nagar'
+        student_n = b.student_name or b.name.replace('DEMO-', '').split('-')[0] or 'Student'
+        notes_str = "\n".join([
+            f"Student Name: {student_n}",
+            f"Course: {b.course_name or 'Python Full Stack'}",
+            f"Status: {b.demo_status or 'Scheduled'}",
+            f"Training Mode: {'Online' if b_branch == 'Online' else 'Offline'}",
+            f"Branch: {b_branch}",
+            "Assign Counsellor: Priya Sharma",
+            f"Demo Status: {b.demo_status or 'Scheduled'}",
+        ])
+        results.append({
+            'id': str(b.id),
+            'enquiry_id': b.enquiry_id or f"ENQ-{b.id}",
+            'title': f"Demo: {student_n} - {b.course_name or 'IT Course'}",
+            'meeting_link': b.demo_link or "https://meet.google.com/abc-demo-xyz",
+            'scheduled_time': f"{b.start_date} {b.timing or '11:00 AM'}" if b.start_date else timezone.now().strftime("%Y-%m-%d 11:00 AM"),
+            'notes': notes_str,
+            'trainer_name': t_name,
+        })
+
+    # Add realistic test demo data for user "test" / general testing
+    if len(results) < 4:
+        today_date = timezone.now().strftime("%Y-%m-%d")
+        sample_demos = [
+            {
+                'id': 'demo_101',
+                'enquiry_id': 'ENQ-901',
+                'title': 'Demo: Rohit Verma - Python Full Stack & Django',
+                'meeting_link': 'https://meet.google.com/pyt-demo-blr',
+                'scheduled_time': f'{today_date} 10:30 AM',
+                'notes': f"Student Name: Rohit Verma\nCourse: Python Full Stack & Django\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Pooja Nair\nDemo Status: Scheduled",
+                'trainer_name': t_name,
+            },
+            {
+                'id': 'demo_102',
+                'enquiry_id': 'ENQ-902',
+                'title': 'Demo: Ananya Sen - Data Science & AI',
+                'meeting_link': 'https://meet.google.com/dts-demo-kln',
+                'scheduled_time': f'{today_date} 02:00 PM',
+                'notes': f"Student Name: Ananya Sen\nCourse: Data Science & AI\nStatus: Joined\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Priya Sharma\nDemo Status: Joined",
+                'trainer_name': t_name,
+            },
+            {
+                'id': 'demo_103',
+                'enquiry_id': 'ENQ-903',
+                'title': 'Demo: Vikramaditya Singh - AWS DevOps Cloud',
+                'meeting_link': 'https://meet.google.com/aws-demo-blr',
+                'scheduled_time': f'{today_date} 04:30 PM',
+                'notes': f"Student Name: Vikramaditya Singh\nCourse: AWS DevOps Cloud & Kubernetes\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Pooja Nair\nDemo Status: Scheduled",
+                'trainer_name': t_name,
+            },
+            {
+                'id': 'demo_104',
+                'enquiry_id': 'ENQ-904',
+                'title': 'Demo: Neha Kulkarni - React & Next.js Frontend',
+                'meeting_link': 'https://meet.google.com/rct-demo-kln',
+                'scheduled_time': f'{today_date} 06:00 PM',
+                'notes': f"Student Name: Neha Kulkarni\nCourse: React & Next.js Full Stack\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Admin\nDemo Status: Scheduled",
+                'trainer_name': t_name,
+            },
+        ]
+        results.extend(sample_demos)
+
+    return Response(results)
 
 
 class HolidayViewSet(viewsets.ModelViewSet):
@@ -1191,7 +1489,11 @@ def monitoring_summary_view(request):
     for t in trainers:
         live = LiveActivity.objects.filter(trainer_id=t.id).first()
         att = TrainerAttendance.objects.filter(trainer_id=t.id, date=today_str).first()
-        active_batches = Batch.objects.filter(trainer_id=t.id, is_completed=False).count()
+        active_batches = Batch.objects.filter(
+            Q(trainer_id=t.id) | Q(trainer_name__iexact=t.name),
+            is_completed=False,
+            is_active=True
+        ).exclude(batch_type='demo').count()
         leave_bal = TrainerLeaveBalance.objects.filter(trainer_id=t.id).first()
 
         # Determine attendance status
@@ -1560,7 +1862,7 @@ def trainer_timeline_view(request):
             Q(trainer_id=trainer.id) | Q(trainer_name__iexact=trainer.name),
             is_completed=False,
             is_active=True
-        )
+        ).exclude(batch_type='demo')
         active_batch_count = active_batches_qs.count()
         active_batch_names = list(active_batches_qs.values_list('name', flat=True))
 

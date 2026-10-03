@@ -36,7 +36,7 @@ async function callBaileysSend(
   return false;
 }
 
-async function callBaileysCreateGroup(name: string, participants: string[]): Promise<any> {
+export async function callBaileysCreateGroup(name: string, participants: string[]): Promise<any> {
   try {
     const res = await fetch(DJANGO_WA_PROXY, {
       method: 'POST',
@@ -49,6 +49,32 @@ async function callBaileysCreateGroup(name: string, participants: string[]): Pro
     }
   } catch { }
   return null;
+}
+
+export async function callBaileysUpdateGroupParticipants(
+  groupId: string,
+  participants: string[],
+  action: 'add' | 'remove' = 'add'
+): Promise<{ success: boolean; error?: string; result?: any }> {
+  try {
+    const res = await fetch(DJANGO_WA_PROXY, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'update_group_participants',
+        groupId,
+        participants,
+        sub_action: action,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error' };
+  }
+  return { success: false, error: 'Failed to update WhatsApp group participants' };
 }
 
 async function findGroupJidByName(groupName: string): Promise<string | null> {

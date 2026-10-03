@@ -232,7 +232,12 @@ export default function AdminReportsPage() {
 
     const isAttQualified = parseFloat(attPercent) >= 86.66;
     
-    const trainerBatches = batches.filter((b) => b.trainer_id === trainer.id);
+    const trainerBatches = batches.filter(
+      (b) =>
+        (b.trainer_id === trainer.id || b.trainer_name?.toLowerCase() === trainer.name?.toLowerCase()) &&
+        b.batch_type !== 'demo' &&
+        !b.is_completed
+    );
     let batchHours = trainerBatches.length > 0 ? trainerBatches.length : 5;
 
     if (trainer.id === 'usr_trainer_1' || trainer.username === 'rahul') {

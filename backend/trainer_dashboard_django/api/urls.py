@@ -13,6 +13,9 @@ from .views import (
     HolidayViewSet,
     WhatsAppGroupViewSet,
     auth_login_view,
+    auth_forgot_password_request_view,
+    auth_verify_otp_view,
+    auth_reset_password_view,
     whatsapp_bot_gateway,
     reports_summary_view,
     monitoring_summary_view,
@@ -24,6 +27,7 @@ from .views import (
     support_send_message_view,
     support_update_status_view,
     support_contacts_view,
+    external_trainer_meetings_view,
 )
 
 router = DefaultRouter()
@@ -43,6 +47,12 @@ router.register(r'whatsapp-groups', WhatsAppGroupViewSet, basename='whatsapp-gro
 urlpatterns = [
     path('auth/login/', auth_login_view, name='auth-login'),
     path('auth/login', auth_login_view, name='auth-login-noslash'),
+    path('auth/forgot-password/', auth_forgot_password_request_view, name='auth-forgot-password'),
+    path('auth/forgot-password', auth_forgot_password_request_view, name='auth-forgot-password-noslash'),
+    path('auth/verify-otp/', auth_verify_otp_view, name='auth-verify-otp'),
+    path('auth/verify-otp', auth_verify_otp_view, name='auth-verify-otp-noslash'),
+    path('auth/reset-password/', auth_reset_password_view, name='auth-reset-password'),
+    path('auth/reset-password', auth_reset_password_view, name='auth-reset-password-noslash'),
     path('whatsapp/bot', whatsapp_bot_gateway, name='whatsapp-bot-gateway'),
     path('whatsapp/bot/', whatsapp_bot_gateway, name='whatsapp-bot-gateway-slash'),
     path('reports', reports_summary_view, name='reports-summary'),
@@ -67,6 +77,7 @@ urlpatterns = [
     path('support/threads/<str:thread_id>/status/', support_update_status_view, name='support-status'),
     path('support/messages', support_send_message_view, name='support-send-noslash'),
     path('support/messages/', support_send_message_view, name='support-send'),
+    path('external/trainer-meetings', external_trainer_meetings_view, name='external-trainer-meetings-noslash'),
+    path('external/trainer-meetings/', external_trainer_meetings_view, name='external-trainer-meetings'),
     path('', include(router.urls)),
 ]
-

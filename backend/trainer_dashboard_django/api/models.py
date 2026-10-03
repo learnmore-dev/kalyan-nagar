@@ -392,3 +392,16 @@ class SupportMessage(models.Model):
     def __str__(self):
         return f"Msg from {self.sender_name} at {self.created_at}"
 
+
+
+class PasswordResetOTP(models.Model):
+    id = models.CharField(max_length=100, primary_key=True, default=uuid.uuid4)
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='reset_otps')
+    otp = models.CharField(max_length=10)
+    token = models.CharField(max_length=100, unique=True, default=uuid.uuid4)
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f'OTP {self.otp} for {self.user.username} (Used: {self.is_used})'

@@ -626,8 +626,13 @@ export default function TrainerDashboardPage() {
                         {noteLines.map((line, idx) => {
                           const parts = line.split(':');
                           const key = parts[0]?.trim();
-                          const val = parts.slice(1).join(':').trim();
+                          let val = parts.slice(1).join(':').trim();
                           if (!key || !val) return null;
+                          const kLower = key.toLowerCase();
+                          // Exclude sensitive student details (mobile, email, phone)
+                          if (kLower.includes('mobile') || kLower.includes('email') || kLower.includes('phone') || kLower.includes('contact')) {
+                            return null;
+                          }
                           return (
                             <div key={idx} className="flex flex-col p-2 rounded-lg bg-white"
                                  style={{ border: '1px solid var(--border)' }}>

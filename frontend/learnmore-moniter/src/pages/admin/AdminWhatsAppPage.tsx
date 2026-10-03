@@ -60,7 +60,7 @@ export default function AdminWhatsAppPage() {
       }
 
       if (batchData.success) {
-        setBatches(batchData.batches || []);
+        setBatches((batchData.batches || []).filter((b: Batch) => b.batch_type !== 'demo'));
       }
     } catch {
       // silent

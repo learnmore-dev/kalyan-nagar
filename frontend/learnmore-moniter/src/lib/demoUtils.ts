@@ -10,18 +10,28 @@ export interface TrainerDemoMeeting {
   trainer_name?: string;
 }
 
+export function resolveBranchName(rawBranch?: string | null, fallback = 'N/A'): string {
+  if (!rawBranch) return fallback;
+  const clean = rawBranch.trim();
+  if (!clean) return fallback;
+  return clean;
+}
+
 function batchToDemoMeeting(batch: Batch, trainerName: string): TrainerDemoMeeting {
+  const branchName =
+    batch.branch ||
+    (batch as any).branch_name ||
+    (batch as any).location ||
+    (batch as any).center ||
+    (batch as any).institute_branch ||
+    'N/A';
+
   const notes = [
     `Student Name: ${batch.student_name || batch.name.replace(/^DEMO-/, '').split('-')[0] || 'Student'}`,
-    `Mobile: ${batch.student_phone || 'N/A'}`,
-    `Email: ${batch.student_email || 'N/A'}`,
     `Course: ${batch.course_name || 'General'}`,
     `Status: ${batch.demo_status || 'Scheduled'}`,
-    'Training Mode: Online',
-    `Branch: ${batch.branch || 'General'}`,
-    'City: Bangalore',
-    'Source: Website',
-    'Next Follow-up: N/A',
+    `Training Mode: ${(batch.name || '').toLowerCase().includes('onl') ? 'Online' : 'Offline'}`,
+    `Branch: ${branchName}`,
     'Assign Counsellor: Admin',
     `Demo Status: ${batch.demo_status || 'Scheduled'}`,
   ].join('\n');

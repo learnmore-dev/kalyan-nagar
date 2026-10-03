@@ -403,6 +403,75 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // POST /group-participants (Add or Remove group members dynamically)
+  if (req.method === 'POST' && url.pathname === '/group-participants') {
+    const body = await getBody();
+    const { groupId, participants = [], action = 'add' } = body;
+
+    if (!botStatus.isConnected || !sock) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(
+        JSON.stringify({
+          success: false,
+          error: 'WhatsApp Bot is not connected yet. Please scan QR code first.',
+        })
+      );
+    }
+
+    try {
+      let resolvedGroupId = groupId;
+      if (resolvedGroupId && !resolvedGroupId.includes('@g.us')) {
+        const targetClean = resolvedGroupId.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const found = cachedGroups.find((g) => {
+          const gName = (g.name || g.subject || '').toLowerCase().trim();
+          const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+          return gName === resolvedGroupId.toLowerCase() || (cleanGName && (cleanGName === targetClean || cleanGName.includes(targetClean) || targetClean.includes(cleanGName)));
+        });
+        if (found && found.id) {
+          resolvedGroupId = found.id;
+        }
+      }
+
+      const jids = (Array.isArray(participants) ? participants : [participants])
+        .map((p) => {
+          if (!p) return null;
+          let clean = String(p).replace(/[^0-9]/g, '');
+          if (!clean || clean.length < 10) return null;
+          if (clean.length === 10) clean = '91' + clean;
+          if (clean.length === 11 && clean.startsWith('0')) clean = '91' + clean.slice(1);
+          return `${clean}@s.whatsapp.net`;
+        })
+        .filter(Boolean);
+
+      if (!resolvedGroupId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'groupId is required' }));
+      }
+
+      if (jids.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'No valid participant phone numbers provided' }));
+      }
+
+      console.log(`[group-participants] Action: ${action} on ${resolvedGroupId} for:`, jids);
+      const updateResult = await sock.groupParticipantsUpdate(resolvedGroupId, jids, action === 'remove' ? 'remove' : 'add');
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(
+        JSON.stringify({
+          success: true,
+          groupId: resolvedGroupId,
+          action,
+          result: updateResult,
+        })
+      );
+    } catch (err) {
+      console.error('[group-participants] Error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
   // POST /send-message
   if (req.method === 'POST' && url.pathname === '/send-message') {
     const body = await getBody();

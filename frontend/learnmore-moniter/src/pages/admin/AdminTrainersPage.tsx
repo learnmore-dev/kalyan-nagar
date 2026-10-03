@@ -120,7 +120,18 @@ export default function AdminTrainersPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {trainers.map((trainer) => {
-            const assignedBatches = batches.filter((b) => b.trainer_id === trainer.id);
+            const assignedBatches = batches.filter(
+              (b) =>
+                (b.trainer_id === trainer.id || b.trainer_name?.toLowerCase() === trainer.name?.toLowerCase()) &&
+                b.batch_type !== 'demo' &&
+                !b.is_completed &&
+                b.is_active !== false
+            );
+            const assignedDemos = batches.filter(
+              (b) =>
+                (b.trainer_id === trainer.id || b.trainer_name?.toLowerCase() === trainer.name?.toLowerCase()) &&
+                b.batch_type === 'demo'
+            );
             const isEditing = editingTrainerId === trainer.id;
 
             return (
@@ -213,13 +224,22 @@ export default function AdminTrainersPage() {
                   </div>
 
                   <div className="space-y-2 text-xs text-slate-600">
-                    {!isEditing && <div className="flex items-center gap-2">
-                      <Mail className="h-3.5 w-3.5 text-slate-400" />
-                      <span>{trainer.email}</span>
-                    </div>}
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="h-3.5 w-3.5 text-slate-400" />
-                      <span><strong>{assignedBatches.length}</strong> Active Batches Assigned</span>
+                    {!isEditing && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{trainer.email}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <BookOpen className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        <span><strong>{assignedBatches.length}</strong> Active Batches Assigned</span>
+                      </div>
+                      {assignedDemos.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-700 text-[10px] font-bold border border-purple-200">
+                          🎯 {assignedDemos.length} Demos
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getStoredUser } from '@/lib/auth';
 import { Batch, User } from '@/lib/types';
-import { mergeTrainerDemoRecords, TrainerDemoMeeting } from '@/lib/demoUtils';
+import { mergeTrainerDemoRecords, TrainerDemoMeeting, resolveBranchName } from '@/lib/demoUtils';
 import {
   Video,
   Search,
@@ -153,7 +153,18 @@ export default function TrainerDemosPage() {
 
       const isJoined = (kvMap['status'] || '').toLowerCase() === 'joined';
       const statusVal = kvMap['status'] || 'Scheduled';
-      const branchVal = kvMap['branch'] || 'General';
+      const rawBranch =
+        kvMap['branch'] ||
+        kvMap['branch name'] ||
+        kvMap['branch_name'] ||
+        kvMap['center'] ||
+        kvMap['centre'] ||
+        kvMap['location'] ||
+        (m as any).branch ||
+        (m as any).branch_name ||
+        (m as any).location ||
+        '';
+      const branchVal = rawBranch.trim() || 'N/A';
 
       return {
         ...m,
@@ -166,18 +177,16 @@ export default function TrainerDemosPage() {
         counsellorName: kvMap['assign counsellor'] || 'N/A',
         mobile: kvMap['mobile'] || 'N/A',
         email: kvMap['email'] || 'N/A',
-        trainingMode: kvMap['training mode'] || 'N/A',
-        city: kvMap['city'] || 'N/A',
+        trainingMode: kvMap['training mode'] || (branchVal.toLowerCase().includes('onl') ? 'Online' : 'Offline'),
+        city: kvMap['city'] || 'Bangalore',
         source: kvMap['source'] || 'N/A',
         nextFollowup: kvMap['next follow-up'] || 'N/A'
       };
     });
   }, [demoMeetings]);
 
-  const DEFAULT_BRANCHES = ["Kalyan Nagar", "BTM", "Marathahalli", "Online"];
-
   const availableBranches = useMemo(() => {
-    const set = new Set<string>(DEFAULT_BRANCHES);
+    const set = new Set<string>();
     parsedMeetings.forEach(pm => {
       if (pm.branchVal && pm.branchVal !== 'N/A') set.add(pm.branchVal);
     });
@@ -189,9 +198,9 @@ export default function TrainerDemosPage() {
       const matchSearch =
         search === '' ||
         item.studentName.toLowerCase().includes(search.toLowerCase()) ||
-        item.mobile.toLowerCase().includes(search.toLowerCase()) ||
         item.courseName.toLowerCase().includes(search.toLowerCase()) ||
-        item.counsellorName.toLowerCase().includes(search.toLowerCase());
+        item.counsellorName.toLowerCase().includes(search.toLowerCase()) ||
+        item.branchVal.toLowerCase().includes(search.toLowerCase());
 
       const matchStatus =
         statusFilter === 'all' ||
@@ -402,7 +411,7 @@ export default function TrainerDemosPage() {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by student name, course, counsellor, or mobile..."
+            placeholder="Search by student name, course, counsellor, or branch..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-indigo-500 font-medium"
@@ -482,7 +491,7 @@ export default function TrainerDemosPage() {
                   )}
                 </div>
 
-                <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-100 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-100 grid grid-cols-2 sm:grid-cols-2 gap-3 text-xs">
                   <div className="flex flex-col bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                       <GraduationCap className="w-3 h-3 text-indigo-500" /> Course
@@ -507,24 +516,6 @@ export default function TrainerDemosPage() {
                     </span>
                     <span className="font-bold text-slate-800 text-xs truncate mt-0.5" title={m.branchVal}>
                       {m.branchVal}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-emerald-500" /> Mobile
-                    </span>
-                    <span className="font-bold text-slate-800 text-xs truncate mt-0.5" title={m.mobile}>
-                      {m.mobile}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-rose-500" /> Email
-                    </span>
-                    <span className="font-bold text-slate-800 text-xs truncate mt-0.5" title={m.email}>
-                      {m.email}
                     </span>
                   </div>
 
