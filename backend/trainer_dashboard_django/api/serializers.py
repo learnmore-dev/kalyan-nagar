@@ -42,6 +42,23 @@ class BatchSerializer(serializers.ModelSerializer):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
         if 'trainer_id' in data and not data.get('trainer'):
             data['trainer'] = data['trainer_id']
+
+        # Extract counsellor from CRM payload variations
+        counsellor_val = (
+            data.get('counsellor_name') or
+            data.get('counsellor') or
+            data.get('counselor_name') or
+            data.get('counselor') or
+            data.get('assign_counsellor') or
+            data.get('assigned_counsellor') or
+            data.get('Assign Counsellor') or
+            data.get('counsellorName')
+        )
+        if counsellor_val and not data.get('counsellor_name'):
+            data['counsellor_name'] = str(counsellor_val).strip()
+        if counsellor_val and not data.get('counsellor'):
+            data['counsellor'] = str(counsellor_val).strip()
+
         data.pop('students', None)
         return super().to_internal_value(data)
 

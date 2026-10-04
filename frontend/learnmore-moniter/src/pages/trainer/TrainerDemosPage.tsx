@@ -166,6 +166,20 @@ export default function TrainerDemosPage() {
         '';
       const branchVal = rawBranch.trim() || 'N/A';
 
+      const counsellorVal =
+        kvMap['assign counsellor'] ||
+        kvMap['counsellor'] ||
+        kvMap['counsellor name'] ||
+        kvMap['counselor'] ||
+        kvMap['counselor name'] ||
+        kvMap['assigned counsellor'] ||
+        kvMap['assigned counselor'] ||
+        (m as any).counsellor_name ||
+        (m as any).counsellor ||
+        (m as any).counselor_name ||
+        (m as any).counselor ||
+        'N/A';
+
       return {
         ...m,
         kvMap,
@@ -174,7 +188,7 @@ export default function TrainerDemosPage() {
         branchVal,
         studentName: kvMap['student name'] || m.title.replace('Demo:', '').trim(),
         courseName: kvMap['course'] || 'N/A',
-        counsellorName: kvMap['assign counsellor'] || 'N/A',
+        counsellorName: counsellorVal,
         mobile: kvMap['mobile'] || 'N/A',
         email: kvMap['email'] || 'N/A',
         trainingMode: kvMap['training mode'] || (branchVal.toLowerCase().includes('onl') ? 'Online' : 'Offline'),

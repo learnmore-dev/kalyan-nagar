@@ -8,6 +8,9 @@ export interface TrainerDemoMeeting {
   scheduled_time: string;
   notes?: string;
   trainer_name?: string;
+  counsellor_name?: string;
+  counsellor?: string;
+  branch?: string;
 }
 
 export function resolveBranchName(rawBranch?: string | null, fallback = 'N/A'): string {
@@ -26,15 +29,26 @@ function batchToDemoMeeting(batch: Batch, trainerName: string): TrainerDemoMeeti
     (batch as any).institute_branch ||
     'N/A';
 
-  const notes = [
-    `Student Name: ${batch.student_name || batch.name.replace(/^DEMO-/, '').split('-')[0] || 'Student'}`,
-    `Course: ${batch.course_name || 'General'}`,
-    `Status: ${batch.demo_status || 'Scheduled'}`,
-    `Training Mode: ${(batch.name || '').toLowerCase().includes('onl') ? 'Online' : 'Offline'}`,
-    `Branch: ${branchName}`,
-    'Assign Counsellor: Admin',
-    `Demo Status: ${batch.demo_status || 'Scheduled'}`,
-  ].join('\n');
+  const counsellorName =
+    batch.counsellor_name ||
+    batch.counsellor ||
+    (batch as any).counselor_name ||
+    (batch as any).counselor ||
+    (batch as any).assign_counsellor ||
+    (batch as any).assigned_counsellor ||
+    'N/A';
+
+  const notes = batch.notes && batch.notes.includes('Assign Counsellor:')
+    ? batch.notes
+    : [
+        `Student Name: ${batch.student_name || batch.name.replace(/^DEMO-/, '').split('-')[0] || 'Student'}`,
+        `Course: ${batch.course_name || 'General'}`,
+        `Status: ${batch.demo_status || 'Scheduled'}`,
+        `Training Mode: ${(batch.name || '').toLowerCase().includes('onl') ? 'Online' : 'Offline'}`,
+        `Branch: ${branchName}`,
+        `Assign Counsellor: ${counsellorName}`,
+        `Demo Status: ${batch.demo_status || 'Scheduled'}`,
+      ].join('\n');
 
   return {
     id: batch.id,
@@ -46,6 +60,9 @@ function batchToDemoMeeting(batch: Batch, trainerName: string): TrainerDemoMeeti
       : new Date().toISOString(),
     notes,
     trainer_name: batch.trainer_name || trainerName,
+    counsellor_name: counsellorName,
+    counsellor: counsellorName,
+    branch: branchName,
   };
 }
 

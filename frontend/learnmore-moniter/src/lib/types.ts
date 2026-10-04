@@ -49,6 +49,9 @@ export interface Batch {
   student_phone?: string | null;
   student_email?: string | null;
   branch?: string | null;
+  counsellor_name?: string | null;
+  counsellor?: string | null;
+  notes?: string | null;
   completed_hours?: number;
   code?: string;
   status?: string;

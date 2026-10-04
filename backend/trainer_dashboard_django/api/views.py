@@ -1355,15 +1355,32 @@ def external_trainer_meetings_view(request):
     for b in demo_batches:
         b_branch = b.branch or 'Kalyan Nagar'
         student_n = b.student_name or b.name.replace('DEMO-', '').split('-')[0] or 'Student'
-        notes_str = "\n".join([
-            f"Student Name: {student_n}",
-            f"Course: {b.course_name or 'Python Full Stack'}",
-            f"Status: {b.demo_status or 'Scheduled'}",
-            f"Training Mode: {'Online' if b_branch == 'Online' else 'Offline'}",
-            f"Branch: {b_branch}",
-            "Assign Counsellor: Priya Sharma",
-            f"Demo Status: {b.demo_status or 'Scheduled'}",
-        ])
+        counsellor_n = b.counsellor_name or b.counsellor or ''
+
+        # If counsellor_n not directly stored on batch, check if notes contained it
+        if not counsellor_n and b.notes:
+            for line in b.notes.splitlines():
+                if ':' in line:
+                    k, v = line.split(':', 1)
+                    if k.strip().lower() in ['assign counsellor', 'counsellor', 'counselor', 'assigned counsellor', 'counsellor name', 'counselor name']:
+                        counsellor_n = v.strip()
+                        break
+
+        counsellor_display = counsellor_n if counsellor_n else 'N/A'
+
+        if b.notes and "Assign Counsellor:" in b.notes:
+            notes_str = b.notes
+        else:
+            notes_str = "\n".join([
+                f"Student Name: {student_n}",
+                f"Course: {b.course_name or 'Python Full Stack'}",
+                f"Status: {b.demo_status or 'Scheduled'}",
+                f"Training Mode: {'Online' if b_branch == 'Online' else 'Offline'}",
+                f"Branch: {b_branch}",
+                f"Assign Counsellor: {counsellor_display}",
+                f"Demo Status: {b.demo_status or 'Scheduled'}",
+            ])
+
         results.append({
             'id': str(b.id),
             'enquiry_id': b.enquiry_id or f"ENQ-{b.id}",
@@ -1372,10 +1389,13 @@ def external_trainer_meetings_view(request):
             'scheduled_time': f"{b.start_date} {b.timing or '11:00 AM'}" if b.start_date else timezone.now().strftime("%Y-%m-%d 11:00 AM"),
             'notes': notes_str,
             'trainer_name': t_name,
+            'counsellor_name': counsellor_display,
+            'counsellor': counsellor_display,
+            'branch': b_branch,
         })
 
-    # Add realistic test demo data for user "test" / general testing
-    if len(results) < 4:
+    # Only add sample demo data if no batches exist at all and search is for test user
+    if len(results) == 0 and search_name.lower() in ['test', 'demo', '']:
         today_date = timezone.now().strftime("%Y-%m-%d")
         sample_demos = [
             {
@@ -1386,6 +1406,9 @@ def external_trainer_meetings_view(request):
                 'scheduled_time': f'{today_date} 10:30 AM',
                 'notes': f"Student Name: Rohit Verma\nCourse: Python Full Stack & Django\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Pooja Nair\nDemo Status: Scheduled",
                 'trainer_name': t_name,
+                'counsellor_name': 'Pooja Nair',
+                'counsellor': 'Pooja Nair',
+                'branch': 'Kalyan Nagar',
             },
             {
                 'id': 'demo_102',
@@ -1395,24 +1418,9 @@ def external_trainer_meetings_view(request):
                 'scheduled_time': f'{today_date} 02:00 PM',
                 'notes': f"Student Name: Ananya Sen\nCourse: Data Science & AI\nStatus: Joined\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Priya Sharma\nDemo Status: Joined",
                 'trainer_name': t_name,
-            },
-            {
-                'id': 'demo_103',
-                'enquiry_id': 'ENQ-903',
-                'title': 'Demo: Vikramaditya Singh - AWS DevOps Cloud',
-                'meeting_link': 'https://meet.google.com/aws-demo-blr',
-                'scheduled_time': f'{today_date} 04:30 PM',
-                'notes': f"Student Name: Vikramaditya Singh\nCourse: AWS DevOps Cloud & Kubernetes\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Pooja Nair\nDemo Status: Scheduled",
-                'trainer_name': t_name,
-            },
-            {
-                'id': 'demo_104',
-                'enquiry_id': 'ENQ-904',
-                'title': 'Demo: Neha Kulkarni - React & Next.js Frontend',
-                'meeting_link': 'https://meet.google.com/rct-demo-kln',
-                'scheduled_time': f'{today_date} 06:00 PM',
-                'notes': f"Student Name: Neha Kulkarni\nCourse: React & Next.js Full Stack\nStatus: Scheduled\nTraining Mode: Offline\nBranch: Kalyan Nagar\nAssign Counsellor: Admin\nDemo Status: Scheduled",
-                'trainer_name': t_name,
+                'counsellor_name': 'Priya Sharma',
+                'counsellor': 'Priya Sharma',
+                'branch': 'Kalyan Nagar',
             },
         ]
         results.extend(sample_demos)
