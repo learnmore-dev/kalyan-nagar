@@ -1,4 +1,5 @@
 import uuid
+from django.db.models import Q
 from rest_framework import serializers
 from .models import (
     UserProfile,
@@ -52,12 +53,40 @@ class BatchSerializer(serializers.ModelSerializer):
             data.get('assign_counsellor') or
             data.get('assigned_counsellor') or
             data.get('Assign Counsellor') or
-            data.get('counsellorName')
+            data.get('counsellorName') or
+            data.get('counsellor_id') or
+            data.get('counselor_id') or
+            data.get('lead_owner') or
+            data.get('assigned_to') or
+            data.get('staff') or
+            data.get('created_by')
         )
-        if counsellor_val and not data.get('counsellor_name'):
-            data['counsellor_name'] = str(counsellor_val).strip()
-        if counsellor_val and not data.get('counsellor'):
-            data['counsellor'] = str(counsellor_val).strip()
+
+        if isinstance(counsellor_val, dict):
+            c_name = counsellor_val.get('name') or counsellor_val.get('username') or counsellor_val.get('first_name') or ''
+            if counsellor_val.get('first_name') and counsellor_val.get('last_name'):
+                c_name = f"{counsellor_val.get('first_name')} {counsellor_val.get('last_name')}".strip()
+            counsellor_val = c_name
+        elif isinstance(counsellor_val, (int, float)) or (isinstance(counsellor_val, str) and counsellor_val.isdigit()):
+            u_obj = UserProfile.objects.filter(Q(id=str(counsellor_val)) | Q(username=str(counsellor_val))).first()
+            if u_obj:
+                counsellor_val = u_obj.name or u_obj.username
+
+        # Also check if notes contain Assign Counsellor: ...
+        notes_val = data.get('notes')
+        if not counsellor_val and notes_val and isinstance(notes_val, str):
+            for line in notes_val.splitlines():
+                if ':' in line:
+                    k, v = line.split(':', 1)
+                    if k.strip().lower() in ['assign counsellor', 'counsellor', 'counselor', 'assigned counsellor', 'counsellor name', 'counselor name']:
+                        counsellor_val = v.strip()
+                        break
+
+        if counsellor_val:
+            final_name = str(counsellor_val).strip()
+            if final_name:
+                data['counsellor_name'] = final_name
+                data['counsellor'] = final_name
 
         data.pop('students', None)
         return super().to_internal_value(data)

@@ -441,6 +441,21 @@ class BatchViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         students_raw = request.data.get('students', [])
+
+        # Upsert support: If enquiry_id already exists in DB, update that batch
+        enquiry_id = request.data.get('enquiry_id')
+        if enquiry_id:
+            existing = Batch.objects.filter(enquiry_id=str(enquiry_id).strip()).first()
+            if existing:
+                serializer = self.get_serializer(existing, data=request.data, partial=True)
+                if serializer.is_valid():
+                    self.perform_update(serializer)
+                    return Response({
+                        'success': True,
+                        'batch': serializer.data,
+                        'message': f'Batch "{existing.name}" updated successfully'
+                    }, status=status.HTTP_200_OK)
+
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response({'success': False, 'error': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
