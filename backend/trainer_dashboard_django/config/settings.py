@@ -125,3 +125,9 @@ EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').lower() in ('true', '1')
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'kanzariyapratik124@gmail.com')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'xrdtkwzkayzeerkf')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'Learnmore Technologies <kanzariyapratik124@gmail.com>')
+
+# MyOperator WhatsApp API Configuration
+MYOPERATOR_WHATSAPP_BASE_URL = os.environ.get('MYOPERATOR_WHATSAPP_BASE_URL', 'https://publicapi.myoperator.co')
+MYOPERATOR_COMPANY_ID = os.environ.get('MYOPERATOR_COMPANY_ID', '69bdaed1f68b538')
+MYOPERATOR_WHATSAPP_API_KEY = os.environ.get('MYOPERATOR_WHATSAPP_API_KEY', 'AwzkegUNbo5Wrassf0khEFZourA5SLjHuWV9NvJVg2')
+

@@ -24,6 +24,7 @@ let reconnectTimer = null;
 let latestQrString = null;
 let latestQrDataUrl = null;
 let pairingCode = null;
+let userRequestedLogout = false;
 
 let botStatus = {
   isConnected: false,
@@ -71,11 +72,11 @@ async function startWhatsApp() {
     try {
       const vRes = await Promise.race([
         fetchLatestBaileysVersion(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 1200))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
       ]);
       if (vRes?.version) version = vRes.version;
     } catch (e) {
-      console.log('Using default Baileys version due to fast startup timeout.');
+      console.log('Using fallback Baileys version due to fast startup timeout.');
     }
     console.log(`Using Baileys version: ${version.join('.')}`);
 
@@ -88,8 +89,12 @@ async function startWhatsApp() {
       markOnlineOnConnect: true,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000,
+      keepAliveIntervalMs: 15000,
       generateHighQualityLinkPreview: false,
+      retryRequestOptions: {
+        maxRetries: 5,
+        delayMs: 2000,
+      },
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -113,6 +118,7 @@ async function startWhatsApp() {
         latestQrString = null;
         latestQrDataUrl = null;
         pairingCode = null;
+        userRequestedLogout = false;
         botStatus.isConnected = true;
         botStatus.status = 'connected';
         botStatus.phoneNumber = sock?.user?.id ? sock.user.id.split(':')[0] : 'Linked';
@@ -127,14 +133,14 @@ async function startWhatsApp() {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const errorMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || '');
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-        console.log(`⚠️ Connection close event. StatusCode: ${statusCode}, Error: ${errorMsg}, isLoggedOut: ${isLoggedOut}`);
+        console.log(`⚠️ Connection close event. StatusCode: ${statusCode}, Error: ${errorMsg}, userRequestedLogout: ${userRequestedLogout}`);
 
-        if (isLoggedOut) {
+        if (userRequestedLogout) {
+          userRequestedLogout = false;
           botStatus.isConnected = false;
-          botStatus.status = 'disconnected';
-          console.log('🚪 Device logged out. Wiping auth session for fresh QR...');
+          botStatus.status = 'scan_required';
+          console.log('🚪 Manual user logout requested. Wiping auth session for fresh QR...');
           try {
             if (fs.existsSync(AUTH_DIR)) {
               fs.rmSync(AUTH_DIR, { recursive: true, force: true });
@@ -147,11 +153,11 @@ async function startWhatsApp() {
           pairingCode = null;
           scheduleRestart(2000);
         } else {
-          // Restart required (515) or temporary handshake
-          // Keep isConnected intact if paired so UI does not flicker 3-4 times
-          botStatus.status = 'reconnecting';
+          // Automatic disconnect / network drop / temporary 401 handshake retry / 515 restart
+          // ALWAYS KEEP auth credentials intact so device stays paired permanently!
+          botStatus.status = botStatus.isConnected ? 'reconnecting' : 'initializing';
           const delayMs = statusCode === DisconnectReason.restartRequired ? 1000 : 2500;
-          console.log(`🔄 Reconnecting with existing session credentials in ${delayMs}ms...`);
+          console.log(`🔄 Automatic Reconnect: Retaining session credentials and reconnecting in ${delayMs}ms...`);
           scheduleRestart(delayMs);
         }
       }
@@ -563,7 +569,8 @@ const server = http.createServer(async (req, res) => {
     (url.pathname === '/reset-auth' || url.pathname === '/disconnect' || url.pathname === '/logout')
   ) {
     try {
-      console.log('🔄 Disconnect / reset session requested.');
+      console.log('🔄 Manual Disconnect / reset session requested by user.');
+      userRequestedLogout = true;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
