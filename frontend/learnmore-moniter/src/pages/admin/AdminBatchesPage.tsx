@@ -455,7 +455,7 @@ export default function AdminBatchesPage() {
 
                           {/* + Log Session */}
                           <Link
-                            to={`/trainer/sessions/add?batch=${batch.id}`}
+                            to={`/admin/sessions/add?batch=${batch.id}`}
                             className="px-3 py-1 rounded-full border border-emerald-300/80 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1 transition-colors shadow-2xs"
                             title="Log New Work Session"
                           >

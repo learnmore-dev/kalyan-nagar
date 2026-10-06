@@ -774,7 +774,7 @@ export default function AdminTrainerDetailPage() {
               </div>
 
               <Link
-                to="/trainer/sessions/add"
+                to="/admin/sessions/add"
                 className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs flex items-center gap-1.5"
               >
                 <Plus className="h-3.5 w-3.5" /> Log Class Session

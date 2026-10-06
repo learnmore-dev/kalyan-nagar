@@ -443,7 +443,7 @@ export default function AdminBatchDetailPage() {
             <div className="section-title"><BookOpen className="h-4 w-4 text-indigo-600" /> Session Log</div>
             <div className="section-subtitle">{sessions.length} sessions logged · {usedHours}h total</div>
           </div>
-          <Link to={`/trainer/sessions/add?batch=${id}`}
+          <Link to={`/admin/sessions/add?batch=${id}`}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors"
                 style={{ background: '#4f46e5' }}>
             + Add Session

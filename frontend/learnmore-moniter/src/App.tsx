@@ -93,6 +93,10 @@ export default function App() {
           <Route path="trainer-timeline" element={<AdminTrainerTimelinePage />} />
           <Route path="trainers/:id" element={<AdminTrainerDetailPage />} />
           <Route path="whatsapp" element={<AdminWhatsAppPage />} />
+          <Route path="sessions/add" element={<TrainerAddSessionPage />} />
+          <Route path="add-session" element={<TrainerAddSessionPage />} />
+          <Route path="live-class" element={<TrainerLiveClassPage />} />
+          <Route path="live-class/:batchId" element={<TrainerLiveClassPage />} />
         </Route>
 
         {/* Trainer Routes */}
