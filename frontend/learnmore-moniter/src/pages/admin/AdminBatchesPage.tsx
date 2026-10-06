@@ -367,7 +367,13 @@ export default function AdminBatchesPage() {
                         {displayIndex}
                       </td>
                       <td className="px-4 py-4 font-bold text-slate-900 max-w-[200px]">
-                        {batch.name}
+                        <Link
+                          to={`/admin/batches/${batch.id}`}
+                          className="hover:text-indigo-600 hover:underline transition-colors flex items-center gap-1.5"
+                          title="Click to view Batch Details & Session Logs"
+                        >
+                          <span>{batch.name}</span>
+                        </Link>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2.5">
@@ -438,20 +444,22 @@ export default function AdminBatchesPage() {
                             ✏️ Edit
                           </button>
 
-                          {/* View */}
+                          {/* View Batch & Session Logs */}
                           <Link
                             to={`/admin/batches/${batch.id}`}
                             className="px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[11px] flex items-center gap-1 transition-colors shadow-2xs"
+                            title="View Batch Details & Trainer Session Logs"
                           >
-                            👁️ View
+                            👁️ View Sessions
                           </Link>
 
-                          {/* + Session */}
+                          {/* + Log Session */}
                           <Link
                             to={`/trainer/sessions/add?batch=${batch.id}`}
                             className="px-3 py-1 rounded-full border border-emerald-300/80 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[11px] flex items-center gap-1 transition-colors shadow-2xs"
+                            title="Log New Work Session"
                           >
-                            ➕ Session
+                            ➕ Log Session
                           </Link>
 
                           {/* Complete / Reopen */}

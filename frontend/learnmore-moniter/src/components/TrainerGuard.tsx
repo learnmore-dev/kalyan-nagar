@@ -14,11 +14,6 @@ export default function TrainerGuard({ children }: { children: React.ReactNode }
       return;
     }
 
-    if (currentUser.role === 'admin') {
-      navigate('/admin/dashboard', { replace: true });
-      return;
-    }
-
     setAuthorized(true);
   }, [navigate]);
 
