@@ -439,6 +439,18 @@ class BatchViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'batches': serializer.data})
 
+    def retrieve(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        import urllib.parse
+        clean_pk = urllib.parse.unquote(str(pk)) if pk else ''
+
+        batch = Batch.objects.filter(id=clean_pk).first() or Batch.objects.filter(id=pk).first() or Batch.objects.filter(name=clean_pk).first()
+        if not batch:
+            return Response({'success': False, 'error': f'Batch "{clean_pk}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = self.get_serializer(batch)
+        return Response({'success': True, 'batch': serializer.data})
+
     def create(self, request, *args, **kwargs):
         students_raw = request.data.get('students', [])
 

@@ -62,10 +62,21 @@ export default function AdminBatchDetailPage() {
       const sData = await sRes.json();
       const studData = await studRes.json();
 
-      if (bData.success) {
+      if (bData.success && bData.batch) {
         setBatch(bData.batch);
       } else if (bData.id) {
         setBatch(bData);
+      } else {
+        // Fallback fetch all batches and match by ID or name
+        try {
+          const allRes = await fetch('/api/batches/');
+          if (allRes.ok) {
+            const allData = await allRes.json();
+            const list = allData.batches || allData || [];
+            const found = list.find((b: Batch) => String(b.id) === String(id) || String(b.name) === String(id));
+            if (found) setBatch(found);
+          }
+        } catch {}
       }
 
       if (sData.success) {
