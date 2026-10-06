@@ -17,7 +17,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  BookOpen,
+  Clock,
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 
 export default function AdminBatchesPage() {
@@ -46,6 +50,29 @@ export default function AdminBatchesPage() {
   const [editHours, setEditHours] = useState(0);
   const [editStudents, setEditStudents] = useState(0);
   const [editTrainerId, setEditTrainerId] = useState('');
+
+  // Sessions viewer modal state
+  const [viewingSessionsBatch, setViewingSessionsBatch] = useState<Batch | null>(null);
+  const [batchSessions, setBatchSessions] = useState<any[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+
+  const openSessionsModal = async (batch: Batch) => {
+    setViewingSessionsBatch(batch);
+    setLoadingSessions(true);
+    try {
+      const res = await fetch(`/api/batches/${batch.id}/sessions/`);
+      const data = await res.json();
+      if (data.success) {
+        setBatchSessions(data.sessions || []);
+      } else {
+        setBatchSessions([]);
+      }
+    } catch {
+      setBatchSessions([]);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
 
   const fetchBatchesAndTrainers = async () => {
     try {
@@ -444,13 +471,23 @@ export default function AdminBatchesPage() {
                             ✏️ Edit
                           </button>
 
-                          {/* View Batch & Session Logs */}
+                          {/* View Sessions Modal Trigger */}
+                          <button
+                            type="button"
+                            onClick={() => openSessionsModal(batch)}
+                            className="px-3 py-1 rounded-full border border-indigo-300/80 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            title="View all trainer sessions logged for this batch"
+                          >
+                            📖 View Sessions ({batch.used_hours || 0}h)
+                          </button>
+
+                          {/* Full Batch Details */}
                           <Link
                             to={`/admin/batches/${batch.id}`}
                             className="px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[11px] flex items-center gap-1 transition-colors shadow-2xs"
-                            title="View Batch Details & Trainer Session Logs"
+                            title="Open Full Batch Details Page"
                           >
-                            👁️ View Sessions
+                            👁️ Details
                           </Link>
 
                           {/* + Log Session */}
@@ -716,6 +753,110 @@ export default function AdminBatchesPage() {
                 </button>
               </div>
             </form>
+      {/* ── Trainer Session Logs Viewer Modal ── */}
+      {viewingSessionsBatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="w-full max-w-3xl bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+                  <BookOpen className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                    <span>{viewingSessionsBatch.name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800">
+                      {batchSessions.length} Sessions Logged
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Faculty Trainer: <strong className="text-slate-800">{viewingSessionsBatch.trainer_name || 'Unassigned'}</strong> · Total Hours Logged: <strong className="text-indigo-600">{viewingSessionsBatch.used_hours || 0}h / {viewingSessionsBatch.total_hours}h</strong>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setViewingSessionsBatch(null)}
+                className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 cursor-pointer text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingSessions ? (
+              <div className="py-12 text-center text-slate-400 flex items-center justify-center gap-2">
+                <div className="h-5 w-5 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin" />
+                <span className="text-xs font-bold">Loading trainer session logs...</span>
+              </div>
+            ) : batchSessions.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs font-semibold bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                📄 No class sessions logged by trainer for this batch yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">#</th>
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Trainer</th>
+                      <th className="py-3 px-4">Topic Covered / Syllabus</th>
+                      <th className="py-3 px-4 text-center">Duration</th>
+                      <th className="py-3 px-4">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {batchSessions.map((ses, idx) => (
+                      <tr key={ses.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 font-bold text-slate-400">{idx + 1}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-slate-800 whitespace-nowrap">📅 {ses.date}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">{ses.trainer_name || viewingSessionsBatch.trainer_name}</td>
+                        <td className="py-3 px-4">
+                          <span className="font-extrabold text-indigo-900 leading-relaxed block">{ses.topic || <span className="text-slate-400 italic">No topic specified</span>}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-mono font-bold border border-emerald-200">
+                            ⏱️ {ses.hours || 0}h
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 max-w-[200px] truncate" title={ses.notes}>
+                          {ses.notes || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <Link
+                to={`/admin/batches/${viewingSessionsBatch.id}`}
+                className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-bold text-xs flex items-center gap-1.5 transition-colors"
+              >
+                <span>Full Batch Details Page</span>
+                <Eye className="h-3.5 w-3.5" />
+              </Link>
+
+              <div className="flex items-center gap-2">
+                <Link
+                  to={`/admin/sessions/add?batch=${viewingSessionsBatch.id}`}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>+ Log New Session</span>
+                </Link>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingSessionsBatch(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
