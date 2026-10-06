@@ -753,6 +753,10 @@ export default function AdminBatchesPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
       {/* ── Trainer Session Logs Viewer Modal ── */}
       {viewingSessionsBatch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
