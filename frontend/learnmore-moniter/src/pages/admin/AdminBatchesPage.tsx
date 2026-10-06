@@ -802,33 +802,45 @@ export default function AdminBatchesPage() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-500 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="py-3 px-4">#</th>
-                      <th className="py-3 px-4">Date</th>
-                      <th className="py-3 px-4">Trainer</th>
-                      <th className="py-3 px-4">Topic Covered / Syllabus</th>
-                      <th className="py-3 px-4 text-center">Duration</th>
-                      <th className="py-3 px-4">Notes</th>
+                      <th className="py-3.5 px-4 w-10">#</th>
+                      <th className="py-3.5 px-4">DATE</th>
+                      <th className="py-3.5 px-4">HOURS</th>
+                      <th className="py-3.5 px-4">TOPIC COVERED</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
-                    {batchSessions.map((ses, idx) => (
-                      <tr key={ses.id || idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 font-bold text-slate-400">{idx + 1}</td>
-                        <td className="py-3 px-4 font-mono font-bold text-slate-800 whitespace-nowrap">📅 {ses.date}</td>
-                        <td className="py-3 px-4 font-bold text-slate-900">{ses.trainer_name || viewingSessionsBatch.trainer_name}</td>
-                        <td className="py-3 px-4">
-                          <span className="font-extrabold text-indigo-900 leading-relaxed block">{ses.topic || <span className="text-slate-400 italic">No topic specified</span>}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-mono font-bold border border-emerald-200">
-                            ⏱️ {ses.hours || 0}h
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-slate-600 max-w-[200px] truncate" title={ses.notes}>
-                          {ses.notes || '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {batchSessions.map((ses, idx) => {
+                      const presentCount = ses.total_students_present || (ses.students_attendance ? ses.students_attendance.filter((st: any) => st.status === 'present').length : 1);
+                      const totalCount = ses.students_attendance && ses.students_attendance.length > 0 ? ses.students_attendance.length : (presentCount || 1);
+                      return (
+                        <tr key={ses.id || idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-4 px-4 font-bold text-slate-400">{idx + 1}</td>
+                          <td className="py-4 px-4 font-mono font-bold text-slate-700 whitespace-nowrap">
+                            📅 {ses.date || ses.session_date}
+                          </td>
+                          <td className="py-4 px-4 whitespace-nowrap">
+                            <span className="px-3 py-1 rounded-full bg-indigo-50/80 text-indigo-700 font-mono font-bold border border-indigo-200/60 inline-flex items-center gap-1 text-xs">
+                              ⏱️ {ses.hours || ses.hours_taken || 1} h
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 space-y-2">
+                            <div className="font-extrabold text-slate-900 leading-relaxed text-xs">
+                              {ses.topic || ses.topic_covered || ses.description || 'Class Session'}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100/90 text-emerald-800 text-[10px] font-extrabold border border-emerald-200/60">
+                                👥 {presentCount}/{totalCount} Present
+                              </span>
+                              {ses.trainer_name && (
+                                <span className="text-[10px] text-slate-400 font-semibold">
+                                  by {ses.trainer_name}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

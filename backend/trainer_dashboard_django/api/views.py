@@ -586,21 +586,46 @@ class BatchViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='sessions')
     def sessions(self, request, pk=None):
         """GET /api/batches/{id}/sessions/ — all work sessions for this batch with topic coverage"""
-        batch = self.get_object()
-        sessions = WorkSession.objects.filter(batch_id=pk).order_by('-session_date', '-created_at')
-        
+        import urllib.parse
+        clean_pk = urllib.parse.unquote(str(pk)) if pk else ''
+
+        batch = Batch.objects.filter(id=clean_pk).first() or Batch.objects.filter(id=pk).first() or Batch.objects.filter(name=clean_pk).first()
+        if not batch:
+            try:
+                batch = self.get_object()
+            except Exception:
+                batch = None
+
+        if not batch:
+            return Response({'success': False, 'error': f'Batch "{clean_pk}" not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        sessions = WorkSession.objects.filter(
+            Q(batch=batch) | Q(batch_id=batch.id) | Q(batch_id=clean_pk) | Q(batch_name=batch.name)
+        ).order_by('-session_date', '-created_at')
+
         session_data = []
         total_hours = 0
         for s in sessions:
             total_hours += s.hours_taken or 0
+
+            topic_str = s.description or ''
+            if not topic_str and isinstance(s.selected_topics, list) and s.selected_topics:
+                topic_str = ', '.join(s.selected_topics)
+
             session_data.append({
-                'id': s.id,
+                'id': str(s.id),
                 'date': s.session_date or str(s.created_at)[:10],
-                'trainer_name': s.trainer_name or '',
-                'topic': s.topic_covered or '',
+                'session_date': s.session_date or str(s.created_at)[:10],
+                'trainer_name': s.trainer_name or (s.trainer.name if s.trainer else ''),
+                'topic': topic_str or 'Class Session',
+                'topic_covered': topic_str or 'Class Session',
+                'description': topic_str or 'Class Session',
                 'hours': s.hours_taken or 0,
-                'notes': s.notes or '',
+                'hours_taken': s.hours_taken or 0,
+                'notes': s.description or '',
                 'created_at': str(s.created_at),
+                'students_attendance': s.students_attendance or [],
+                'total_students_present': s.total_students_present or 0,
             })
 
         planned_hours = batch.total_hours or 1
@@ -686,7 +711,13 @@ class WorkSessionViewSet(viewsets.ModelViewSet):
         if trainer_id:
             queryset = queryset.filter(trainer_id=trainer_id)
         if batch_id:
-            queryset = queryset.filter(batch_id=batch_id)
+            import urllib.parse
+            clean_b = urllib.parse.unquote(str(batch_id))
+            b_obj = Batch.objects.filter(id=clean_b).first() or Batch.objects.filter(id=batch_id).first() or Batch.objects.filter(name=clean_b).first()
+            if b_obj:
+                queryset = queryset.filter(Q(batch=b_obj) | Q(batch_id=b_obj.id) | Q(batch_name=b_obj.name))
+            else:
+                queryset = queryset.filter(Q(batch_id=batch_id) | Q(batch_id=clean_b) | Q(batch_name=clean_b))
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'sessions': serializer.data})
 
