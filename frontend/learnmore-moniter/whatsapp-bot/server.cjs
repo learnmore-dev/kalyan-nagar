@@ -124,7 +124,7 @@ async function startWhatsApp() {
         botStatus.phoneNumber = sock?.user?.id ? sock.user.id.split(':')[0] : 'Linked';
         botStatus.userName = sock?.user?.name || 'Admin';
         botStatus.lastConnectedAt = new Date().toISOString();
-        console.log('✅ WhatsApp Baileys Socket Connected Successfully! Logged in as:', sock?.user?.id);
+        console.log('✅ WhatsApp Connected Successfully! Logged in as:', sock?.user?.id);
         setTimeout(async () => {
           await refreshGroups(true);
         }, 1500);
@@ -133,14 +133,22 @@ async function startWhatsApp() {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const errorMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || '');
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-        console.log(`⚠️ Connection close event. StatusCode: ${statusCode}, Error: ${errorMsg}, userRequestedLogout: ${userRequestedLogout}`);
-
-        if (userRequestedLogout) {
-          userRequestedLogout = false;
+        if (userRequestedLogout || isLoggedOut) {
           botStatus.isConnected = false;
           botStatus.status = 'scan_required';
-          console.log('🚪 Manual user logout requested. Wiping auth session for fresh QR...');
+          latestQrDataUrl = null;
+          latestQrString = null;
+          pairingCode = null;
+
+          if (userRequestedLogout) {
+            console.log('🚪 Manual user logout requested. Wiping auth session for fresh QR...');
+            userRequestedLogout = false;
+          } else {
+            console.log(`❌ WhatsApp Logged Out | Status: ${statusCode || 401} | Reason: ${errorMsg}. New QR scan required.`);
+          }
+
           try {
             if (fs.existsSync(AUTH_DIR)) {
               fs.rmSync(AUTH_DIR, { recursive: true, force: true });
@@ -148,16 +156,14 @@ async function startWhatsApp() {
           } catch (e) {
             console.warn('Auth directory cleanup error:', e.message);
           }
-          latestQrDataUrl = null;
-          latestQrString = null;
-          pairingCode = null;
           scheduleRestart(2000);
         } else {
-          // Automatic disconnect / network drop / temporary 401 handshake retry / 515 restart
-          // ALWAYS KEEP auth credentials intact so device stays paired permanently!
+          // Temporary network failure, 515 restartRequired, PM2/process restart, socket drop
+          // Retain saved auth credentials in AUTH_DIR and automatically reconnect
           botStatus.status = botStatus.isConnected ? 'reconnecting' : 'initializing';
-          const delayMs = statusCode === DisconnectReason.restartRequired ? 1000 : 2500;
-          console.log(`🔄 Automatic Reconnect: Retaining session credentials and reconnecting in ${delayMs}ms...`);
+          const delayMs = statusCode === DisconnectReason.restartRequired ? 1500 : 3000;
+          console.log(`⚠️ WhatsApp connection closed | Status: ${statusCode || 'unknown'} | Reason: ${errorMsg}`);
+          console.log(`🔄 Reconnecting automatically using saved session in ${delayMs}ms...`);
           scheduleRestart(delayMs);
         }
       }
