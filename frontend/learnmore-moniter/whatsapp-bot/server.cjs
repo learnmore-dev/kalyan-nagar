@@ -377,7 +377,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const jids = participants
+      const jids = (Array.isArray(participants) ? participants : [])
         .map((p) => {
           if (!p) return null;
           let clean = String(p).replace(/[^0-9]/g, '');
@@ -388,33 +388,82 @@ const server = http.createServer(async (req, res) => {
         })
         .filter(Boolean);
 
-      if (jids.length === 0 && sock?.user?.id) {
-        const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-        jids.push(botJid);
-      }
+      // Deduplicate JIDs
+      const uniqueJids = Array.from(new Set(jids));
 
-      console.log(`Creating group "${name}" with ${jids.length} participants:`, jids);
-      let group;
-      try {
-        group = await sock.groupCreate(name || 'New Batch Group', jids);
-      } catch (createErr) {
-        console.log('groupCreate fallback with bot JID:', createErr.message);
-        const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
-        group = await sock.groupCreate(name || 'New Batch Group', botJid ? [botJid] : []);
-      }
+      console.log(`Creating group "${name}" with ${uniqueJids.length} participants:`, uniqueJids);
+      let group = null;
 
-      if (jids.length > 0) {
+      // Strategy 1: Try creating group with all participants
+      if (uniqueJids.length > 0) {
         try {
-          await sock.groupParticipantsUpdate(group.id, jids, 'add');
-        } catch (addErr) {
-          console.log('Group participants add notice:', addErr.message);
+          group = await sock.groupCreate(name || 'New Batch Group', uniqueJids);
+        } catch (errAll) {
+          console.log('groupCreate with all participants failed:', errAll.message);
+        }
+      }
+
+      // Strategy 2: If full group creation failed (e.g. >2 participants or invalid numbers),
+      // try creating group with individual participants one by one until success
+      if (!group && uniqueJids.length > 0) {
+        for (const pJid of uniqueJids) {
+          try {
+            group = await sock.groupCreate(name || 'New Batch Group', [pJid]);
+            console.log(`Successfully created group using participant ${pJid}`);
+            break;
+          } catch (errSingle) {
+            console.log(`groupCreate with participant ${pJid} failed:`, errSingle.message);
+          }
+        }
+      }
+
+      // Strategy 3: If still no group created and multiple JIDs exist, try first 2 JIDs
+      if (!group && uniqueJids.length >= 2) {
+        try {
+          group = await sock.groupCreate(name || 'New Batch Group', uniqueJids.slice(0, 2));
+        } catch (errTwo) {
+          console.log('groupCreate with first 2 participants failed:', errTwo.message);
+        }
+      }
+
+      if (!group) {
+        // Fallback: Create group using bot's own session fallback if permitted, or fail gracefully
+        const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
+        if (botJid && uniqueJids.length > 0) {
+          try {
+            group = await sock.groupCreate(name || 'New Batch Group', [uniqueJids[0]]);
+          } catch {}
+        }
+      }
+
+      if (!group) {
+        throw new Error('Could not create WhatsApp group with provided participant numbers. Please verify phone numbers.');
+      }
+
+      // Add all participants to the group safely
+      if (uniqueJids.length > 0) {
+        try {
+          await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
+        } catch (batchAddErr) {
+          console.log('Batch add participants failed, adding individually:', batchAddErr.message);
+          for (const pJid of uniqueJids) {
+            try {
+              await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
+            } catch (singleAddErr) {
+              console.log(`Failed to add participant ${pJid}:`, singleAddErr.message);
+            }
+          }
         }
       }
 
       let inviteCode = '';
       try {
         inviteCode = await sock.groupInviteCode(group.id);
-      } catch {}
+      } catch (linkErr) {
+        console.log('Failed to fetch group invite code:', linkErr.message);
+      }
+
+      refreshGroups(true).catch(() => {});
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(
@@ -426,6 +475,7 @@ const server = http.createServer(async (req, res) => {
         })
       );
     } catch (err) {
+      console.error('Group creation endpoint error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }

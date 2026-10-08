@@ -522,7 +522,7 @@ class BatchViewSet(viewsets.ModelViewSet):
                         r = requests.post(
                             f"{b_url}/create-group",
                             json={'name': group_name, 'participants': participants},
-                            timeout=5
+                            timeout=25
                         )
                         if r.ok:
                             resp = r.json()
