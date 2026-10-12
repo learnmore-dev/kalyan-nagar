@@ -553,12 +553,27 @@ const server = http.createServer(async (req, res) => {
 
     // If groupId is not provided or not ending with @g.us, try to resolve from cachedGroups by groupName
     if ((!groupId || !groupId.includes('@g.us')) && groupName) {
+      if (!cachedGroups || cachedGroups.length === 0) {
+        try { await refreshGroups(true); } catch {}
+      }
       const cleanTarget = groupName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const found = cachedGroups.find((g) => {
+      let found = cachedGroups.find((g) => {
         const gName = (g.name || g.subject || '').toLowerCase().trim();
         const cleanGName = gName.replace(/[^a-z0-9]/g, '');
         return gName === groupName.toLowerCase() || (cleanGName && (cleanGName === cleanTarget || cleanGName.includes(cleanTarget) || cleanTarget.includes(cleanGName)));
       });
+
+      if (!found) {
+        try {
+          await refreshGroups(true);
+          found = cachedGroups.find((g) => {
+            const gName = (g.name || g.subject || '').toLowerCase().trim();
+            const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+            return gName === groupName.toLowerCase() || (cleanGName && (cleanGName === cleanTarget || cleanGName.includes(cleanTarget) || cleanTarget.includes(cleanGName)));
+          });
+        } catch {}
+      }
+
       if (found && found.id) {
         groupId = found.id;
       }
