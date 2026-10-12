@@ -55,7 +55,7 @@ export async function callBaileysUpdateGroupParticipants(
   groupId: string,
   participants: string[],
   action: 'add' | 'remove' = 'add'
-): Promise<{ success: boolean; error?: string; result?: any }> {
+): Promise<{ success: boolean; error?: string; result?: any; inviteSentToPrivacy?: string[] }> {
   try {
     const res = await fetch(DJANGO_WA_PROXY, {
       method: 'POST',
