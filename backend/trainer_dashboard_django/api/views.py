@@ -570,6 +570,15 @@ class BatchViewSet(viewsets.ModelViewSet):
                             if resp.get('success'):
                                 g_id = resp.get('groupId')
                                 invite_link = resp.get('inviteLink', '')
+                                if not invite_link and g_id:
+                                    try:
+                                        import time as _t
+                                        _t.sleep(1.2)
+                                        r_link = requests.post(f"{b_url}/group-invite-link", json={'groupId': g_id}, timeout=10)
+                                        if r_link.ok:
+                                            invite_link = r_link.json().get('inviteLink', '')
+                                    except Exception:
+                                        pass
                                 batch.whatsapp_group_id = g_id
                                 batch.whatsapp_group_link = invite_link
                                 batch.save()
@@ -1689,32 +1698,69 @@ def whatsapp_sync_invite_link_view(request):
     """
     Fetches the invite link for an existing WhatsApp group from the Baileys bot
     and saves it to the Batch record in the database.
-    POST body: { group_id: str, batch_id: str }
+    POST body: { group_id?: str, batch_id?: str, group_name?: str }
     """
     import requests as _req
-    group_id = request.data.get('group_id') or ''
-    batch_id = request.data.get('batch_id') or ''
+    group_id = (request.data.get('group_id') or '').strip()
+    batch_id = (request.data.get('batch_id') or '').strip()
+    group_name = (request.data.get('group_name') or '').strip()
 
-    if not group_id:
-        return Response({'success': False, 'error': 'group_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+    batch = None
+    if batch_id:
+        batch = Batch.objects.filter(id=batch_id).first() or Batch.objects.filter(name=batch_id).first()
+        if batch:
+            if not group_id and batch.whatsapp_group_id:
+                group_id = batch.whatsapp_group_id
+            if not group_name:
+                group_name = batch.whatsapp_group_name or batch.name
 
     BAILEYS_URL = 'http://127.0.0.1:5002'
+
+    # If group_id is missing or doesn't end with @g.us, auto-detect group from Baileys active groups by name
+    if (not group_id or '@g.us' not in group_id) and group_name:
+        try:
+            gr_res = _req.get(f"{BAILEYS_URL}/groups", timeout=6)
+            if gr_res.ok:
+                groups_list = gr_res.json().get('groups', [])
+                clean_target = group_name.lower().replace('-', '').replace(' ', '')
+                for g in groups_list:
+                    g_name = (g.get('name') or g.get('subject') or '').lower()
+                    g_clean = g_name.replace('-', '').replace(' ', '')
+                    if g_clean == clean_target or (clean_target and clean_target in g_clean) or (g_clean and g_clean in clean_target):
+                        found_id = g.get('id')
+                        if found_id and '@g.us' in found_id:
+                            group_id = found_id
+                            if batch:
+                                batch.whatsapp_group_id = group_id
+                                batch.save(update_fields=['whatsapp_group_id'])
+                            break
+        except Exception as e:
+            print("Error finding group by name in sync-invite-link:", e)
+
+    if not group_id:
+        return Response({
+            'success': False,
+            'error': f'WhatsApp group "{group_name or batch_id}" was not found on connected WhatsApp. Please paste the link manually.'
+        }, status=status.HTTP_404_NOT_FOUND)
+
     try:
-        # Ask Baileys for the group invite code
         r = _req.post(
             f"{BAILEYS_URL}/group-invite-link",
-            json={'groupId': group_id},
+            json={'groupId': group_id, 'groupName': group_name},
             timeout=15
         )
         if r.ok:
             resp = r.json()
             invite_link = resp.get('inviteLink') or resp.get('link') or ''
-            if invite_link and batch_id:
-                batch = Batch.objects.filter(id=batch_id).first()
-                if batch:
-                    batch.whatsapp_group_link = invite_link
+            resolved_gid = resp.get('groupId') or group_id
+            if invite_link and batch:
+                batch.whatsapp_group_link = invite_link
+                if resolved_gid and resolved_gid != batch.whatsapp_group_id:
+                    batch.whatsapp_group_id = resolved_gid
+                    batch.save(update_fields=['whatsapp_group_link', 'whatsapp_group_id'])
+                else:
                     batch.save(update_fields=['whatsapp_group_link'])
-            return Response({'success': True, 'inviteLink': invite_link})
+            return Response({'success': True, 'inviteLink': invite_link, 'groupId': resolved_gid})
         return Response({'success': False, 'error': f'Baileys returned HTTP {r.status_code}'}, status=status.HTTP_502_BAD_GATEWAY)
     except _req.exceptions.ConnectionError:
         return Response({'success': False, 'error': 'WhatsApp Bot (Baileys) is not running. Try pasting the link manually.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

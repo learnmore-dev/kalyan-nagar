@@ -130,18 +130,29 @@ export default function AdminBatchDetailPage() {
 
       if (res.ok && resData.success !== false) {
         const targetGroup = batch.whatsapp_group_id || batch.whatsapp_group_name || batch.name;
+        let privacyLinkSent = false;
         if (newStudentPhone.trim() && targetGroup) {
           try {
-            await callBaileysUpdateGroupParticipants(targetGroup, [newStudentPhone.trim()], 'add');
+            const waRes = await callBaileysUpdateGroupParticipants(targetGroup, [newStudentPhone.trim()], 'add');
+            if (waRes?.inviteSentToPrivacy && waRes.inviteSentToPrivacy.length > 0) {
+              privacyLinkSent = true;
+            }
           } catch (waErr) {
             console.warn('WhatsApp group sync notice:', waErr);
           }
         }
 
-        setActionNotice({
-          type: 'success',
-          message: `✅ Student "${newStudentName}" added to batch successfully!`,
-        });
+        if (privacyLinkSent) {
+          setActionNotice({
+            type: 'success',
+            message: `✅ Student "${newStudentName}" added! ℹ️ Due to WhatsApp privacy settings, group invite link was sent directly to their WhatsApp chat.`,
+          });
+        } else {
+          setActionNotice({
+            type: 'success',
+            message: `✅ Student "${newStudentName}" added to batch and WhatsApp group successfully!`,
+          });
+        }
 
         setNewStudentName('');
         setNewStudentPhone('');
@@ -194,28 +205,28 @@ export default function AdminBatchDetailPage() {
   };
 
   const handleResyncWhatsAppLink = async () => {
-    if (!batch?.whatsapp_group_id) {
-      setActionNotice({ type: 'error', message: 'No WhatsApp Group ID found. Please paste the link manually.' });
-      setShowPasteLink(true);
-      return;
-    }
     setIsSyncingLink(true);
+    setActionNotice(null);
     try {
       const res = await fetch('/api/whatsapp/sync-invite-link/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ group_id: batch.whatsapp_group_id, batch_id: batch.id }),
+        body: JSON.stringify({
+          group_id: batch?.whatsapp_group_id || '',
+          batch_id: batch?.id || id || '',
+          group_name: batch?.whatsapp_group_name || batch?.name || groupName || '',
+        }),
       });
       const data = await res.json();
-      if (res.ok && data.success) {
+      if (res.ok && data.success && data.inviteLink) {
         setActionNotice({ type: 'success', message: '✅ WhatsApp invite link synced successfully!' });
         fetchData();
       } else {
-        setActionNotice({ type: 'error', message: data.error || 'Could not sync link. Try pasting manually.' });
+        setActionNotice({ type: 'error', message: data.error || 'Could not sync link automatically. You can paste it manually.' });
         setShowPasteLink(true);
       }
     } catch {
-      setActionNotice({ type: 'error', message: 'Could not reach WhatsApp bot. Paste the link manually.' });
+      setActionNotice({ type: 'error', message: 'Could not reach WhatsApp bot. You can paste the link manually.' });
       setShowPasteLink(true);
     } finally {
       setIsSyncingLink(false);
@@ -431,17 +442,16 @@ export default function AdminBatchDetailPage() {
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   <span>Invite Link Missing</span>
                 </div>
-                {batch.whatsapp_group_id && (
-                  <button
-                    type="button"
-                    onClick={handleResyncWhatsAppLink}
-                    disabled={isSyncingLink}
-                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-60"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncingLink ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingLink ? 'Syncing...' : '⚡ Re-sync Link'}</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={handleResyncWhatsAppLink}
+                  disabled={isSyncingLink}
+                  className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-60"
+                  title="Auto-fetch invite link from WhatsApp bot"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isSyncingLink ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingLink ? 'Syncing...' : '⚡ Re-sync Link'}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowPasteLink(true)}

@@ -253,6 +253,77 @@ process.on('unhandledRejection', (err) => {
   console.error('Bot Unhandled Rejection:', err?.message || err);
 });
 
+// Helper: Fetch Group Invite Code with Retry
+async function getGroupInviteLinkWithRetry(groupId, maxRetries = 3) {
+  if (!sock) return null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 600 : 1200));
+      const code = await sock.groupInviteCode(groupId);
+      if (code) {
+        return `https://chat.whatsapp.com/${code}`;
+      }
+    } catch (err) {
+      console.log(`[invite-code] Attempt ${attempt} failed for ${groupId}:`, err.message);
+    }
+  }
+  return null;
+}
+
+// Helper: If participants could not be added due to WhatsApp privacy settings (status != 200/201, e.g. 403),
+// send them a direct private WhatsApp message containing the group invite link!
+async function notifyPrivacyRestrictedParticipants(groupId, groupName, updateResult, cachedInviteLink = null) {
+  if (!sock) return [];
+  const restrictedJids = [];
+
+  const results = Array.isArray(updateResult) ? updateResult : [updateResult].filter(Boolean);
+  for (const item of results) {
+    if (!item) continue;
+    const st = String(item.status || item.code || '');
+    if (st && st !== '200' && st !== '201') {
+      const targetJid = item.jid || item.content?.attrs?.jid || item.attrs?.jid;
+      if (targetJid && !restrictedJids.includes(targetJid)) {
+        restrictedJids.push(targetJid);
+      }
+    }
+  }
+
+  if (restrictedJids.length > 0) {
+    console.log(`[privacy-notice] ${restrictedJids.length} participant(s) blocked by privacy in "${groupName}":`, restrictedJids);
+    let link = cachedInviteLink;
+    if (!link) {
+      link = await getGroupInviteLinkWithRetry(groupId);
+    }
+
+    if (link) {
+      const inviteMsg = [
+        `👋 *Hello! Welcome to LearnMore Technologies.*`,
+        ``,
+        `You have been enrolled in batch: *${groupName}* 📚`,
+        `⚠️ Due to your WhatsApp privacy settings, we could not add you directly to the batch group.`,
+        ``,
+        `👉 *Please tap this link to join your batch group:*`,
+        `${link}`,
+        ``,
+        `_All daily class schedules and study materials will be shared in this group._ 🚀`,
+      ].join('\n');
+
+      for (const jid of restrictedJids) {
+        try {
+          await sock.sendMessage(jid, { text: inviteMsg });
+          console.log(`[privacy-notice] Successfully sent direct invite link to ${jid}`);
+        } catch (sendErr) {
+          console.error(`[privacy-notice] Failed to send private invite to ${jid}:`, sendErr.message);
+        }
+      }
+    } else {
+      console.log(`[privacy-notice] Warning: Could not obtain invite link for group ${groupId} to send to restricted users.`);
+    }
+  }
+
+  return restrictedJids;
+}
+
 // Lightweight HTTP API for Next.js & Django proxy
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -425,28 +496,32 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Could not create WhatsApp group with provided participant numbers. Please verify phone numbers.');
       }
 
+      // Fetch group invite code with retry
+      const inviteLink = await getGroupInviteLinkWithRetry(group.id, 3);
+
       // Add all participants to the group safely
+      let allUpdateResults = [];
       if (uniqueJids.length > 0) {
         try {
-          await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
+          const resAll = await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
+          allUpdateResults = Array.isArray(resAll) ? resAll : [resAll].filter(Boolean);
         } catch (batchAddErr) {
           console.log('Batch add participants failed, adding individually:', batchAddErr.message);
           for (const pJid of uniqueJids) {
             try {
-              await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
+              const resSingle = await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
+              if (Array.isArray(resSingle)) allUpdateResults.push(...resSingle);
+              else if (resSingle) allUpdateResults.push(resSingle);
             } catch (singleAddErr) {
               console.log(`Failed to add participant ${pJid}:`, singleAddErr.message);
+              allUpdateResults.push({ jid: pJid, status: '403' });
             }
           }
         }
       }
 
-      let inviteCode = '';
-      try {
-        inviteCode = await sock.groupInviteCode(group.id);
-      } catch (linkErr) {
-        console.log('Failed to fetch group invite code:', linkErr.message);
-      }
+      // Check for privacy restrictions (e.g. status 403) and send them the invite link directly via PM
+      const privacyNotified = await notifyPrivacyRestrictedParticipants(group.id, name, allUpdateResults, inviteLink);
 
       refreshGroups(true).catch(() => {});
 
@@ -456,7 +531,8 @@ const server = http.createServer(async (req, res) => {
           success: true,
           groupId: group.id,
           groupName: name,
-          inviteLink: inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : null,
+          inviteLink: inviteLink || null,
+          privacyNotified,
         })
       );
     } catch (err) {
@@ -465,26 +541,41 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
   }
-  // POST /group-invite-link — Fetch invite link for an existing group by groupId
+  // POST /group-invite-link — Fetch invite link for an existing group by groupId or groupName
   if (req.method === 'POST' && url.pathname === '/group-invite-link') {
     const body = await getBody();
-    const { groupId } = body;
+    let { groupId, groupName } = body;
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot is not connected yet.' }));
     }
+
+    // If groupId is not provided or not ending with @g.us, try to resolve from cachedGroups by groupName
+    if ((!groupId || !groupId.includes('@g.us')) && groupName) {
+      const cleanTarget = groupName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const found = cachedGroups.find((g) => {
+        const gName = (g.name || g.subject || '').toLowerCase().trim();
+        const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+        return gName === groupName.toLowerCase() || (cleanGName && (cleanGName === cleanTarget || cleanGName.includes(cleanTarget) || cleanTarget.includes(cleanGName)));
+      });
+      if (found && found.id) {
+        groupId = found.id;
+      }
+    }
+
     if (!groupId) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false, error: 'groupId is required' }));
+      return res.end(JSON.stringify({ success: false, error: 'groupId or valid groupName is required' }));
     }
 
     try {
-      const inviteCode = await sock.groupInviteCode(groupId);
+      const inviteLink = await getGroupInviteLinkWithRetry(groupId, 3);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         success: true,
-        inviteLink: inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : null,
+        groupId,
+        inviteLink: inviteLink || null,
       }));
     } catch (err) {
       console.error('group-invite-link error:', err.message);
@@ -496,7 +587,7 @@ const server = http.createServer(async (req, res) => {
   // POST /group-participants (Add or Remove group members dynamically)
   if (req.method === 'POST' && url.pathname === '/group-participants') {
     const body = await getBody();
-    const { groupId, participants = [], action = 'add' } = body;
+    const { groupId, participants = [], action = 'add', groupName } = body;
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -546,6 +637,14 @@ const server = http.createServer(async (req, res) => {
       console.log(`[group-participants] Action: ${action} on ${resolvedGroupId} for:`, jids);
       const updateResult = await sock.groupParticipantsUpdate(resolvedGroupId, jids, action === 'remove' ? 'remove' : 'add');
 
+      // If adding participants, check if any could not be added due to WhatsApp privacy settings
+      let privacySent = [];
+      if (action === 'add') {
+        const groupObj = cachedGroups.find((g) => g.id === resolvedGroupId);
+        const resolvedName = groupName || groupObj?.name || groupObj?.subject || 'Batch Group';
+        privacySent = await notifyPrivacyRestrictedParticipants(resolvedGroupId, resolvedName, updateResult);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(
         JSON.stringify({
@@ -553,6 +652,7 @@ const server = http.createServer(async (req, res) => {
           groupId: resolvedGroupId,
           action,
           result: updateResult,
+          inviteSentToPrivacy: privacySent,
         })
       );
     } catch (err) {
