@@ -38,6 +38,7 @@ export default function AdminLeavesPage() {
   // Adjustment Modal
   const [adjustingTrainer, setAdjustingTrainer] = useState<TrainerLeaveBalance | null>(null);
   const [adjustLeaveType, setAdjustLeaveType] = useState<'casual_sick' | 'optional_holiday'>('casual_sick');
+  const [adjustMode, setAdjustMode] = useState<'quota' | 'balance' | 'deduct'>('quota');
   const [newBalanceValue, setNewBalanceValue] = useState<number>(12);
   const [adjustReason, setAdjustReason] = useState<string>('');
   const [adjustMsg, setAdjustMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -93,6 +94,7 @@ export default function AdminLeavesPage() {
   const handleOpenAdjustModal = (b: TrainerLeaveBalance) => {
     setAdjustingTrainer(b);
     setAdjustLeaveType('casual_sick');
+    setAdjustMode('quota');
     setNewBalanceValue(b.casual_sick_quota);
     setAdjustReason('');
     setAdjustMsg(null);
@@ -104,21 +106,26 @@ export default function AdminLeavesPage() {
     setAdjustLoading(true);
     setAdjustMsg(null);
 
+    const tid = adjustingTrainer.trainer_id || (adjustingTrainer as any).trainer;
+
     try {
       const res = await fetch('/api/leaves/adjust/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          trainer_id: adjustingTrainer.trainer_id,
+          trainer_id: tid,
           admin_name: 'Director (Admin)',
           leave_type: adjustLeaveType,
+          adjustment_type: adjustMode,
           new_balance: newBalanceValue,
-          reason: adjustReason || 'Administrative quota override',
+          new_quota: newBalanceValue,
+          deduct_days: adjustMode === 'deduct' ? newBalanceValue : undefined,
+          reason: adjustReason || `Administrative leave ${adjustMode} override`,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setAdjustMsg({ text: data.message || 'Leave quota adjusted successfully!', type: 'success' });
+        setAdjustMsg({ text: data.message || 'Leave balance updated successfully!', type: 'success' });
         fetchLeavesData();
         setTimeout(() => {
           setAdjustingTrainer(null);
@@ -137,12 +144,13 @@ export default function AdminLeavesPage() {
   const approvedCount = leaves.filter((l) => l.status === 'approved').length;
   const rejectedCount = leaves.filter((l) => l.status === 'rejected').length;
 
-  // Merge trainers and balances so EVERY user/trainer has a leave balance entry
+  // Merge trainers and balances so EVERY user/trainer has an accurate leave balance entry
   const allBalances: TrainerLeaveBalance[] = trainers.map((t) => {
-    const found = balances.find((b) => b.trainer_id === t.id);
+    const found = balances.find((b) => (b.trainer_id || (b as any).trainer) === t.id);
     if (found) {
       return {
         ...found,
+        trainer_id: found.trainer_id || (found as any).trainer || t.id,
         trainer_name: found.trainer_name || t.name,
       };
     }
@@ -158,8 +166,12 @@ export default function AdminLeavesPage() {
   });
 
   balances.forEach((b) => {
-    if (!allBalances.some((item) => item.trainer_id === b.trainer_id)) {
-      allBalances.push(b);
+    const bId = b.trainer_id || (b as any).trainer;
+    if (bId && !allBalances.some((item) => (item.trainer_id || (item as any).trainer) === bId)) {
+      allBalances.push({
+        ...b,
+        trainer_id: bId,
+      });
     }
   });
 
@@ -423,9 +435,14 @@ export default function AdminLeavesPage() {
                     </tr>
                   ) : (
                     paginatedLeaves.map((leave) => {
-                      const tb = allBalances.find((b) => b.trainer_id === leave.trainer_id);
-                      const cAvail = tb ? tb.casual_sick_quota - tb.casual_sick_used : 12;
-                      const oAvail = tb ? tb.optional_holiday_quota - tb.optional_holiday_used : 5;
+                      const lTrainerId = leave.trainer_id || (leave as any).trainer;
+                      const tb = allBalances.find((b) => (b.trainer_id || (b as any).trainer) === lTrainerId);
+                      const cQuota = tb?.casual_sick_quota ?? 12;
+                      const cUsed = tb?.casual_sick_used ?? 0;
+                      const cAvail = Math.max(0, cQuota - cUsed);
+                      const oQuota = tb?.optional_holiday_quota ?? 5;
+                      const oUsed = tb?.optional_holiday_used ?? 0;
+                      const oAvail = Math.max(0, oQuota - oUsed);
                       return (
                         <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-3 px-4 font-bold text-slate-900">
@@ -442,10 +459,10 @@ export default function AdminLeavesPage() {
                           <td className="py-3 px-4">
                             <div className="flex flex-col text-[11px] font-extrabold gap-0.5">
                               <span className="text-slate-800">
-                                Casual: <span className="text-emerald-700">{cAvail}/{tb?.casual_sick_quota || 12} Left</span>
+                                Casual: <span className="text-emerald-700 font-mono">{cAvail}/{cQuota} Left</span>
                               </span>
                               <span className="text-slate-800">
-                                Optional: <span className="text-amber-700">{oAvail}/{tb?.optional_holiday_quota || 5} Left</span>
+                                Optional: <span className="text-amber-700 font-mono">{oAvail}/{oQuota} Left</span>
                               </span>
                             </div>
                           </td>
@@ -530,16 +547,16 @@ export default function AdminLeavesPage() {
 
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/60">
-                    <span className="font-semibold text-slate-600">Casual / Sick Leave Quota:</span>
+                    <span className="font-semibold text-slate-600">Casual / Sick Leaves:</span>
                     <span className="font-mono font-extrabold text-slate-900">
-                      {b.casual_sick_quota - b.casual_sick_used} / {b.casual_sick_quota} Available
+                      {Math.max(0, b.casual_sick_quota - b.casual_sick_used)} / {b.casual_sick_quota} Left
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between p-2.5 bg-amber-50/40 rounded-xl border border-amber-200/60">
-                    <span className="font-semibold text-amber-900">Optional Holidays:</span>
+                    <span className="font-semibold text-amber-900">Optional Festival Holidays:</span>
                     <span className="font-mono font-extrabold text-amber-800">
-                      {b.optional_holiday_quota - b.optional_holiday_used} / {b.optional_holiday_quota} Available
+                      {Math.max(0, b.optional_holiday_quota - b.optional_holiday_used)} / {b.optional_holiday_quota} Left
                     </span>
                   </div>
 
@@ -547,6 +564,16 @@ export default function AdminLeavesPage() {
                     <span className="font-semibold text-emerald-900">Mandatory Holidays:</span>
                     <span className="font-mono font-extrabold text-emerald-800">5 / 5 Entitled</span>
                   </div>
+
+                  {((b as any).casual_used > 0 || (b as any).sick_used > 0 || (b as any).optional_used > 0 || (b as any).weekoff_used > 0) && (
+                    <div className="p-2 bg-slate-50/80 rounded-lg text-[10px] text-slate-500 font-medium flex flex-wrap gap-x-2 gap-y-0.5">
+                      <span>Taken:</span>
+                      {(b as any).casual_used > 0 && <span className="font-bold text-slate-700">{(b as any).casual_used} Casual</span>}
+                      {(b as any).sick_used > 0 && <span className="font-bold text-rose-700">{(b as any).sick_used} Sick</span>}
+                      {(b as any).optional_used > 0 && <span className="font-bold text-amber-700">{(b as any).optional_used} Optional</span>}
+                      {(b as any).weekoff_used > 0 && <span className="font-bold text-indigo-700">{(b as any).weekoff_used} Week-off</span>}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -671,41 +698,92 @@ export default function AdminLeavesPage() {
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Leave Category</label>
-                <select
-                  value={adjustLeaveType}
-                  onChange={(e) => {
-                    const type = e.target.value as any;
-                    setAdjustLeaveType(type);
-                    setNewBalanceValue(
-                      type === 'casual_sick'
-                        ? adjustingTrainer.casual_sick_quota
-                        : adjustingTrainer.optional_holiday_quota
-                    );
-                  }}
-                  className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:border-indigo-600 bg-slate-50"
-                >
-                  <option value="casual_sick">Casual / Sick Leave Quota (Default: 12)</option>
-                  <option value="optional_holiday">Optional Festival Holiday Quota (Default: 5)</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Leave Category</label>
+                  <select
+                    value={adjustLeaveType}
+                    onChange={(e) => {
+                      const type = e.target.value as any;
+                      setAdjustLeaveType(type);
+                      if (adjustMode === 'quota') {
+                        setNewBalanceValue(
+                          type === 'casual_sick'
+                            ? adjustingTrainer.casual_sick_quota
+                            : adjustingTrainer.optional_holiday_quota
+                        );
+                      } else if (adjustMode === 'balance') {
+                        setNewBalanceValue(
+                          type === 'casual_sick'
+                            ? Math.max(0, adjustingTrainer.casual_sick_quota - adjustingTrainer.casual_sick_used)
+                            : Math.max(0, adjustingTrainer.optional_holiday_quota - adjustingTrainer.optional_holiday_used)
+                        );
+                      }
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:border-indigo-600 bg-slate-50"
+                  >
+                    <option value="casual_sick">Casual / Sick Leave</option>
+                    <option value="optional_holiday">Optional Holiday</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Action Type</label>
+                  <select
+                    value={adjustMode}
+                    onChange={(e) => {
+                      const mode = e.target.value as any;
+                      setAdjustMode(mode);
+                      if (mode === 'quota') {
+                        setNewBalanceValue(
+                          adjustLeaveType === 'casual_sick'
+                            ? adjustingTrainer.casual_sick_quota
+                            : adjustingTrainer.optional_holiday_quota
+                        );
+                      } else if (mode === 'balance') {
+                        setNewBalanceValue(
+                          adjustLeaveType === 'casual_sick'
+                            ? Math.max(0, adjustingTrainer.casual_sick_quota - adjustingTrainer.casual_sick_used)
+                            : Math.max(0, adjustingTrainer.optional_holiday_quota - adjustingTrainer.optional_holiday_used)
+                        );
+                      } else if (mode === 'deduct') {
+                        setNewBalanceValue(1);
+                      }
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold focus:outline-none focus:border-indigo-600 bg-slate-50"
+                  >
+                    <option value="quota">Set Annual Quota</option>
+                    <option value="balance">Set Available Balance</option>
+                    <option value="deduct">Deduct Leave Days</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">New Total Annual Quota</label>
+                <label className="block text-slate-700 font-bold mb-1">
+                  {adjustMode === 'quota'
+                    ? 'Total Allowed Quota'
+                    : adjustMode === 'balance'
+                    ? 'New Remaining Available Balance (Will adjust quota)'
+                    : 'Days to Deduct Right Now'}
+                </label>
                 <input
                   type="number"
+                  min="0"
                   value={newBalanceValue}
                   onChange={(e) => setNewBalanceValue(Number(e.target.value))}
                   className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold focus:outline-none focus:border-indigo-600 bg-slate-50"
                 />
+                <span className="text-[10px] text-slate-500 mt-0.5 block">
+                  Current Quota: {adjustLeaveType === 'casual_sick' ? adjustingTrainer.casual_sick_quota : adjustingTrainer.optional_holiday_quota} | Used: {adjustLeaveType === 'casual_sick' ? adjustingTrainer.casual_sick_used : adjustingTrainer.optional_holiday_used} | Available: {Math.max(0, (adjustLeaveType === 'casual_sick' ? adjustingTrainer.casual_sick_quota : adjustingTrainer.optional_holiday_quota) - (adjustLeaveType === 'casual_sick' ? adjustingTrainer.casual_sick_used : adjustingTrainer.optional_holiday_used))}
+                </span>
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">Reason for Override</label>
+                <label className="block text-slate-700 font-bold mb-1">Reason / Note for Override</label>
                 <input
                   type="text"
-                  placeholder="e.g. Approved extra quota by management"
+                  placeholder="e.g. Special management quota adjustment / deducted 1 leave"
                   value={adjustReason}
                   onChange={(e) => setAdjustReason(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-slate-300 focus:outline-none focus:border-indigo-600 bg-slate-50"
@@ -723,9 +801,9 @@ export default function AdminLeavesPage() {
                 <button
                   type="submit"
                   disabled={adjustLoading}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold cursor-pointer transition-all"
                 >
-                  {adjustLoading ? 'Saving...' : 'Save New Quota'}
+                  {adjustLoading ? 'Saving...' : adjustMode === 'deduct' ? 'Deduct Leave Days' : 'Save Balance'}
                 </button>
               </div>
             </form>

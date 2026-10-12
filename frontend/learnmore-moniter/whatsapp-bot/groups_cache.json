@@ -16,6 +16,14 @@
     "isGroup": true
   },
   {
+    "id": "120363430169405029@g.us",
+    "name": "LMT-KN-OCT-OFF-JAVA SCRIPT-10AM",
+    "size": 2,
+    "creation": 1791728286,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
     "id": "120363430237775811@g.us",
     "name": "Dildar",
     "size": 2,
@@ -32,10 +40,58 @@
     "isGroup": true
   },
   {
+    "id": "120363431884323170@g.us",
+    "name": "LMT-BTM-OCT-OFF-POWER BI-08PM",
+    "size": 2,
+    "creation": 1791717108,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412748352044@g.us",
+    "name": "LMT-KN-SEP-OFF-PY-10AM",
+    "size": 2,
+    "creation": 1790251648,
+    "owner": "250130741649635@lid",
+    "isGroup": true
+  },
+  {
     "id": "120363428954876253@g.us",
     "name": "LMT-KN-SEP-OFF-MERN-02PM",
     "size": 2,
     "creation": 1790062084,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412243428879@g.us",
+    "name": "LMT-KN-SEP-OFF-SQL-10AM",
+    "size": 2,
+    "creation": 1790245907,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412625344131@g.us",
+    "name": "LMT-KN-SEP-OFF-SQL-10AM",
+    "size": 2,
+    "creation": 1790245912,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363432895695921@g.us",
+    "name": "LMT-KN-OCT-OFF-SQL-10AM",
+    "size": 2,
+    "creation": 1791703889,
+    "owner": "281393959546924@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363412169097977@g.us",
+    "name": "LMT-KN-OCT-OFF-JAVASCRIPT-10AM",
+    "size": 2,
+    "creation": 1791727880,
     "owner": "281393959546924@lid",
     "isGroup": true
   },
@@ -85,6 +141,14 @@
     "size": 3,
     "creation": 1767417495,
     "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
+    "id": "120363429561242760@g.us",
+    "name": "LMT-BTM-SEP-OFF-SQL-10AM",
+    "size": 3,
+    "creation": 1790913802,
+    "owner": "281393959546924@lid",
     "isGroup": true
   },
   {
@@ -487,11 +551,11 @@
     "isGroup": true
   },
   {
-    "id": "120363409637443972@g.us",
-    "name": "Kalyannagar  synup meeting -10.30am",
+    "id": "120363414668050800@g.us",
+    "name": "LMT-KN-OCT-OFF-SQL-12PM",
     "size": 6,
-    "creation": 1785829418,
-    "owner": "227754180128826@lid",
+    "creation": 1791445511,
+    "owner": "250130741649635@lid",
     "isGroup": true
   },
   {
@@ -607,6 +671,14 @@
     "isGroup": true
   },
   {
+    "id": "120363409637443972@g.us",
+    "name": "Kalyannagar  synup meeting -10.30am",
+    "size": 7,
+    "creation": 1785829418,
+    "owner": "227754180128826@lid",
+    "isGroup": true
+  },
+  {
     "id": "120363423378256513@g.us",
     "name": "LMT-KN-JAN-OF-WD-EXCEL-11AM",
     "size": 7,
@@ -671,6 +743,14 @@
     "isGroup": true
   },
   {
+    "id": "120363426439084369@g.us",
+    "name": "Hackathon 09/08/2026",
+    "size": 8,
+    "creation": 1786184665,
+    "owner": "105935838126174@lid",
+    "isGroup": true
+  },
+  {
     "id": "120363405130653856@g.us",
     "name": "LMT-KN-OF-JAN-WD-PY-9AM",
     "size": 8,
@@ -708,14 +788,6 @@
     "size": 9,
     "creation": 1777458212,
     "owner": "102405358272707@lid",
-    "isGroup": true
-  },
-  {
-    "id": "120363426439084369@g.us",
-    "name": "Hackathon 09/08/2026",
-    "size": 9,
-    "creation": 1786184665,
-    "owner": "105935838126174@lid",
     "isGroup": true
   },
   {
@@ -785,7 +857,7 @@
   {
     "id": "120363410679800243@g.us",
     "name": "Hackthon 09/08/26",
-    "size": 21,
+    "size": 20,
     "creation": 1786250358,
     "owner": "105935838126174@lid",
     "isGroup": true
@@ -825,14 +897,14 @@
   {
     "id": "120363104094922985@g.us",
     "name": "Learn More - Placement group ",
-    "size": 253,
+    "size": 255,
     "creation": 1679565430,
     "isGroup": true
   },
   {
     "id": "120363401662200926@g.us",
     "name": "Airforce 01/2026 Phase-2 Preparation (2) 📢",
-    "size": 389,
+    "size": 382,
     "creation": 1743053943,
     "owner": "97152311259242@lid",
     "isGroup": true

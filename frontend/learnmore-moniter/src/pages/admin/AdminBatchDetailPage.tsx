@@ -49,6 +49,12 @@ export default function AdminBatchDetailPage() {
   const [actionNotice, setActionNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
 
+  // WhatsApp link re-sync / paste states
+  const [showPasteLink, setShowPasteLink] = useState(false);
+  const [pastedLink, setPastedLink] = useState('');
+  const [isSavingLink, setIsSavingLink] = useState(false);
+  const [isSyncingLink, setIsSyncingLink] = useState(false);
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -115,12 +121,14 @@ export default function AdminBatchDetailPage() {
           batch: batch.id,
           batch_name: batch.name,
           name: newStudentName.trim(),
-          phone: newStudentPhone.trim(),
-          email: newStudentEmail.trim(),
+          phone: newStudentPhone.trim() || null,
+          email: newStudentEmail.trim() || null,
         }),
       });
 
-      if (res.ok) {
+      const resData = await res.json();
+
+      if (res.ok && resData.success !== false) {
         const targetGroup = batch.whatsapp_group_id || batch.whatsapp_group_name || batch.name;
         if (newStudentPhone.trim() && targetGroup) {
           try {
@@ -132,7 +140,7 @@ export default function AdminBatchDetailPage() {
 
         setActionNotice({
           type: 'success',
-          message: `Student "${newStudentName}" added to batch and WhatsApp group successfully!`,
+          message: `✅ Student "${newStudentName}" added to batch successfully!`,
         });
 
         setNewStudentName('');
@@ -141,11 +149,13 @@ export default function AdminBatchDetailPage() {
         setIsAddModalOpen(false);
         fetchData();
       } else {
-        const errData = await res.json();
-        setActionNotice({
-          type: 'error',
-          message: errData.error || 'Failed to add student. Please try again.',
-        });
+        // Parse DRF field errors properly
+        const errMsg = resData.error ||
+          (resData.detail && typeof resData.detail === 'object'
+            ? Object.entries(resData.detail).map(([f, v]) => `${f}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' | ')
+            : resData.detail) ||
+          'Failed to add student. Please check the details and try again.';
+        setActionNotice({ type: 'error', message: errMsg });
       }
     } catch (err: any) {
       setActionNotice({
@@ -154,7 +164,62 @@ export default function AdminBatchDetailPage() {
       });
     } finally {
       setIsSubmittingStudent(false);
+      setTimeout(() => setActionNotice(null), 6000);
+    }
+  };
+
+  const handleSaveWhatsAppLink = async () => {
+    if (!pastedLink.trim() || !batch) return;
+    setIsSavingLink(true);
+    try {
+      const res = await fetch(`/api/batches/${batch.id}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp_group_link: pastedLink.trim() }),
+      });
+      if (res.ok) {
+        setActionNotice({ type: 'success', message: '✅ WhatsApp group link saved successfully!' });
+        setShowPasteLink(false);
+        setPastedLink('');
+        fetchData();
+      } else {
+        setActionNotice({ type: 'error', message: 'Failed to save WhatsApp link. Please try again.' });
+      }
+    } catch {
+      setActionNotice({ type: 'error', message: 'Error saving link.' });
+    } finally {
+      setIsSavingLink(false);
       setTimeout(() => setActionNotice(null), 5000);
+    }
+  };
+
+  const handleResyncWhatsAppLink = async () => {
+    if (!batch?.whatsapp_group_id) {
+      setActionNotice({ type: 'error', message: 'No WhatsApp Group ID found. Please paste the link manually.' });
+      setShowPasteLink(true);
+      return;
+    }
+    setIsSyncingLink(true);
+    try {
+      const res = await fetch('/api/whatsapp/sync-invite-link/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ group_id: batch.whatsapp_group_id, batch_id: batch.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionNotice({ type: 'success', message: '✅ WhatsApp invite link synced successfully!' });
+        fetchData();
+      } else {
+        setActionNotice({ type: 'error', message: data.error || 'Could not sync link. Try pasting manually.' });
+        setShowPasteLink(true);
+      }
+    } catch {
+      setActionNotice({ type: 'error', message: 'Could not reach WhatsApp bot. Paste the link manually.' });
+      setShowPasteLink(true);
+    } finally {
+      setIsSyncingLink(false);
+      setTimeout(() => setActionNotice(null), 6000);
     }
   };
 
@@ -330,7 +395,7 @@ export default function AdminBatchDetailPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {batch.whatsapp_group_link && (
+            {batch.whatsapp_group_link ? (
               <>
                 <button
                   type="button"
@@ -341,7 +406,6 @@ export default function AdminBatchDetailPage() {
                   {copiedLink ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
                   <span>{copiedLink ? 'Copied Link!' : 'Copy Group Link'}</span>
                 </button>
-
                 <a
                   href={batch.whatsapp_group_link}
                   target="_blank"
@@ -351,6 +415,41 @@ export default function AdminBatchDetailPage() {
                   <span>Open WhatsApp</span>
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
+                <button
+                  type="button"
+                  onClick={() => setShowPasteLink(true)}
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-amber-50 border border-amber-200 text-amber-700 font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  title="Edit WhatsApp Group Link"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>Edit Link</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                  <span>Invite Link Missing</span>
+                </div>
+                {batch.whatsapp_group_id && (
+                  <button
+                    type="button"
+                    onClick={handleResyncWhatsAppLink}
+                    disabled={isSyncingLink}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isSyncingLink ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingLink ? 'Syncing...' : '⚡ Re-sync Link'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowPasteLink(true)}
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  <span>+ Paste Link Manually</span>
+                </button>
               </>
             )}
 
@@ -363,6 +462,37 @@ export default function AdminBatchDetailPage() {
               <span>+ Add Student</span>
             </button>
           </div>
+
+          {/* Paste / Edit WhatsApp Link panel */}
+          {showPasteLink && (
+            <div className="mt-3 w-full p-4 rounded-2xl bg-blue-50 border border-blue-200 space-y-3">
+              <p className="text-xs font-bold text-blue-800">📋 Paste the WhatsApp Group Invite Link below and save:</p>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={pastedLink}
+                  onChange={(e) => setPastedLink(e.target.value)}
+                  placeholder="https://chat.whatsapp.com/XXXXXXXX"
+                  className="flex-1 px-3 py-2 rounded-xl border border-blue-300 text-xs font-mono focus:outline-none focus:border-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveWhatsAppLink}
+                  disabled={isSavingLink || !pastedLink.trim()}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingLink ? 'Saving...' : 'Save Link'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowPasteLink(false); setPastedLink(''); }}
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Student Table */}
@@ -422,9 +552,15 @@ export default function AdminBatchDetailPage() {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        <Check className="h-3 w-3 text-emerald-600" /> Synced
-                      </span>
+                      {batch.whatsapp_group_link ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          <Check className="h-3 w-3 text-emerald-600" /> Synced
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
+                          <AlertTriangle className="h-3 w-3 text-amber-500" /> No Link
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button

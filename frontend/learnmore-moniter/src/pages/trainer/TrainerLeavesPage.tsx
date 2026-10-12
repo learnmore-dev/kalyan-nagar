@@ -83,19 +83,35 @@ export default function TrainerLeavesPage() {
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState('');
   const [selectedOptionalHoliday, setSelectedOptionalHoliday] = useState<string>('');
+  const [balance, setBalance] = useState<any>(null);
+  const [optionalHolidaysList, setOptionalHolidaysList] = useState<any[]>(OPTIONAL_HOLIDAYS_2026);
 
-  const fetchLeaves = async (userId: string) => {
+  const fetchUserData = async (userId: string) => {
     try {
-      const res = await fetch(`/api/leaves/?trainer_id=${encodeURIComponent(userId)}`);
-      const contentType = res.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.success) {
-          setLeaves(data.leaves || []);
-        }
+      const [lRes, bRes, hRes] = await Promise.all([
+        fetch(`/api/leaves/?trainer_id=${encodeURIComponent(userId)}`),
+        fetch(`/api/leaves/adjust/?trainer_id=${encodeURIComponent(userId)}`),
+        fetch('/api/holidays/'),
+      ]);
+
+      const lData = await lRes.json();
+      if (lData?.success) {
+        setLeaves(lData.leaves || []);
+      }
+
+      const bData = await bRes.json();
+      if (bData?.success) {
+        const found = bData.balance || (bData.balances && bData.balances.find((b: any) => (b.trainer_id || b.trainer) === userId));
+        if (found) setBalance(found);
+      }
+
+      const hData = await hRes.json();
+      if (hData?.success && Array.isArray(hData.holidays)) {
+        const opts = hData.holidays.filter((h: any) => h.type === 'optional');
+        if (opts.length > 0) setOptionalHolidaysList(opts);
       }
     } catch {
-      // silent
+      // silent fallback
     }
   };
 
@@ -106,7 +122,7 @@ export default function TrainerLeavesPage() {
       return;
     }
     setUser(u);
-    fetchLeaves(u.id);
+    fetchUserData(u.id);
   }, [navigate]);
 
   const handleLeaveTypeChange = (type: LeaveType) => {
@@ -130,7 +146,7 @@ export default function TrainerLeavesPage() {
     if (leaveType === 'optional_holiday' && selectedOptionalHoliday) {
       finalStart = selectedOptionalHoliday;
       finalEnd = selectedOptionalHoliday;
-      const h = OPTIONAL_HOLIDAYS_2026.find((x) => x.date === selectedOptionalHoliday);
+      const h = optionalHolidaysList.find((x) => x.date === selectedOptionalHoliday);
       if (h) {
         finalReason = `Optional Holiday: ${h.name}. ${reason}`;
       }
@@ -159,12 +175,26 @@ export default function TrainerLeavesPage() {
       if (res.ok && (data.success || data.id)) {
         setMessage({ text: 'Leave applied successfully!', type: 'success' });
         setReason('');
-        fetchLeaves(user.id);
+        setSelectedOptionalHoliday('');
+        fetchUserData(user.id);
       } else {
         setMessage({ text: data.error || data.detail || 'Failed to apply leave', type: 'error' });
       }
     } catch (err: any) {
       setMessage({ text: err.message || 'Network error', type: 'error' });
+    }
+  };
+
+  const handleSelectHolidayFromCard = (hDate: string, hName: string) => {
+    setLeaveType('optional_holiday');
+    setSelectedOptionalHoliday(hDate);
+    setStartDate(hDate);
+    setEndDate(hDate);
+    setReason(`Optional holiday for ${hName}`);
+    // Scroll to form smoothly
+    const formElem = document.getElementById('leave-application-form');
+    if (formElem) {
+      formElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   };
 
@@ -175,11 +205,20 @@ export default function TrainerLeavesPage() {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   }).length;
 
-  const optionalHolidaysUsedThisYear = leaves.filter((l) => {
-    if (l.leave_type !== 'optional_holiday' || l.status === 'rejected') return false;
-    const d = new Date(l.start_date);
-    return d.getFullYear() === new Date().getFullYear();
-  }).length;
+  const approvedLeavesCount = leaves.filter((l) => l.status === 'approved');
+  const casualTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'casual').length;
+  const sickTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'sick').length;
+  const weekoffsTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'weekoff').length;
+  const optionalTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'optional_holiday').length;
+
+  // Real quotas and available balances
+  const casualSickQuota = balance?.casual_sick_quota ?? 12;
+  const casualSickUsed = balance?.casual_sick_used ?? (casualTakenTotal + sickTakenTotal);
+  const casualSickAvailable = Math.max(0, casualSickQuota - casualSickUsed);
+
+  const optionalQuota = balance?.optional_holiday_quota ?? 5;
+  const optionalUsed = balance?.optional_holiday_used ?? optionalTakenTotal;
+  const optionalAvailable = Math.max(0, optionalQuota - optionalUsed);
 
   if (!user) return null;
 
@@ -303,25 +342,138 @@ export default function TrainerLeavesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* ── 4 Rich Leave Balance Cards Showing ALL Leave Types ────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Casual Leave */}
         <div className="rounded-2xl p-5 bg-white border border-teal-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-teal-50/40">
-          <div className="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1.5">
-            <Coffee className="h-4 w-4 text-teal-600" /> Monthly Casual Leave Quota
+          <div className="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Coffee className="h-4 w-4 text-teal-600" /> Casual Leaves</span>
+            <span className="text-[10px] bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-extrabold">1/Month Rule</span>
           </div>
           <div className="text-3xl font-extrabold font-mono text-teal-900">
-            {casualLeavesUsedThisMonth} / {CASUAL_LEAVE_LIMIT_PER_MONTH} <span className="text-sm font-medium text-teal-600 font-sans">Used</span>
+            {casualSickAvailable} / {casualSickQuota} <span className="text-sm font-medium text-teal-600 font-sans">Left</span>
           </div>
-          <p className="text-xs text-teal-700/80 font-medium">Allowed 1 casual leave per calendar month</p>
+          <p className="text-xs text-teal-700/80 font-medium">
+            This Month: <strong className="text-teal-900">{casualLeavesUsedThisMonth} / 1 Used</strong> ({casualTakenTotal} taken total)
+          </p>
         </div>
 
+        {/* Card 2: Sick / Medical Leave */}
+        <div className="rounded-2xl p-5 bg-white border border-rose-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-rose-50/40">
+          <div className="text-xs font-bold text-rose-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><HeartPulse className="h-4 w-4 text-rose-600" /> Sick / Medical</span>
+            <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-extrabold">Health Rest</span>
+          </div>
+          <div className="text-3xl font-extrabold font-mono text-rose-900">
+            {sickTakenTotal} <span className="text-sm font-medium text-rose-600 font-sans">Days Used</span>
+          </div>
+          <p className="text-xs text-rose-700/80 font-medium">
+            Medical recuperation days recorded for wellness
+          </p>
+        </div>
+
+        {/* Card 3: Optional Holidays */}
         <div className="rounded-2xl p-5 bg-white border border-amber-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-amber-50/40">
-          <div className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-            <Sun className="h-4 w-4 text-amber-600" /> 2026 Optional Holidays Remaining
+          <div className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Sun className="h-4 w-4 text-amber-600" /> Optional Holidays</span>
+            <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-extrabold">2026 Calendar</span>
           </div>
           <div className="text-3xl font-extrabold font-mono text-amber-600">
-            {OPTIONAL_HOLIDAY_LIMIT_PER_YEAR - optionalHolidaysUsedThisYear} / {OPTIONAL_HOLIDAY_LIMIT_PER_YEAR} <span className="text-sm font-medium text-amber-500 font-sans">Available</span>
+            {optionalAvailable} / {optionalQuota} <span className="text-sm font-medium text-amber-500 font-sans">Available</span>
           </div>
-          <p className="text-xs text-amber-700/80 font-medium">Pick up to 5 festival days from official 2026 list</p>
+          <p className="text-xs text-amber-700/80 font-medium">
+            {optionalUsed} / {optionalQuota} festivals taken from official list
+          </p>
+        </div>
+
+        {/* Card 4: Week Offs */}
+        <div className="rounded-2xl p-5 bg-white border border-indigo-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-indigo-50/40">
+          <div className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-indigo-600" /> Weekly Offs</span>
+            <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-extrabold">Weekly Rest</span>
+          </div>
+          <div className="text-3xl font-extrabold font-mono text-indigo-900">
+            {weekoffsTakenTotal} <span className="text-sm font-medium text-indigo-600 font-sans">Approved</span>
+          </div>
+          <p className="text-xs text-indigo-700/80 font-medium">
+            Regular scheduled rest days approved
+          </p>
+        </div>
+      </div>
+
+      {/* ── 2026 Optional Holidays Interactive Hub ────────────────────────────────────────── */}
+      <div className="rounded-3xl p-6 bg-white border border-amber-200/90 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-amber-100">
+          <div>
+            <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Sun className="h-5 w-5 text-amber-500" /> Official 2026 Optional Festival Holidays
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              You are entitled to pick any {optionalQuota} festival holidays. Click "Select & Apply" to instantly request one.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-extrabold text-xs">
+              {optionalAvailable} of {optionalQuota} Available
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {optionalHolidaysList.map((h: any) => {
+            const leaveMatch = leaves.find((l) => l.start_date === h.date && l.leave_type === 'optional_holiday');
+            const isApproved = leaveMatch?.status === 'approved';
+            const isPending = leaveMatch?.status === 'pending';
+
+            return (
+              <div
+                key={h.date}
+                className={`p-4 rounded-2xl border transition-all space-y-2 flex flex-col justify-between ${
+                  isApproved
+                    ? 'bg-emerald-50/60 border-emerald-300'
+                    : isPending
+                    ? 'bg-amber-50/60 border-amber-300'
+                    : 'bg-slate-50/70 border-slate-200 hover:border-amber-400 hover:shadow-xs'
+                }`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono font-bold text-slate-500">📅 {h.date}</span>
+                    {isApproved ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-100 text-emerald-800">
+                        Availed
+                      </span>
+                    ) : isPending ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 text-amber-800">
+                        Pending
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Available
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="font-extrabold text-xs text-slate-900 leading-snug">{h.name}</h4>
+                </div>
+
+                <div className="pt-2">
+                  {isApproved || isPending ? (
+                    <div className="text-[11px] font-bold text-slate-500 italic flex items-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Application Filed
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectHolidayFromCard(h.date, h.name)}
+                      className="w-full py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] shadow-xs cursor-pointer transition-colors"
+                    >
+                      Select & Apply →
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -343,7 +495,7 @@ export default function TrainerLeavesPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xs space-y-4">
+          <div id="leave-application-form" className="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
               <Plus className="h-4 w-4 text-indigo-600" /> Submit Leave Application
             </h3>
@@ -356,17 +508,20 @@ export default function TrainerLeavesPage() {
                   onChange={(e) => handleLeaveTypeChange(e.target.value as any)}
                   className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all cursor-pointer"
                 >
-                  <option value="casual">Casual Leave (1/month)</option>
+                  <option value="casual">Casual Leave (1/month) — {casualSickAvailable}/{casualSickQuota} Left</option>
                   <option value="sick">Sick / Medical Leave</option>
                   <option value="emergency">Emergency Leave</option>
-                  <option value="optional_holiday">Optional Holiday (Select from 2026 Calendar)</option>
+                  <option value="optional_holiday">Optional Holiday (2026 Calendar) — {optionalAvailable}/{optionalQuota} Available</option>
                   <option value="weekoff">Week Off</option>
                 </select>
               </div>
 
               {leaveType === 'optional_holiday' ? (
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1.5">Select 2026 Optional Holiday</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-slate-700 font-bold">Select 2026 Optional Holiday</label>
+                    <span className="text-[11px] font-extrabold text-amber-700">{optionalAvailable} of {optionalQuota} Available</span>
+                  </div>
                   <select
                     required
                     value={selectedOptionalHoliday}
@@ -374,7 +529,7 @@ export default function TrainerLeavesPage() {
                     className="w-full rounded-xl bg-amber-50/50 border border-amber-300 px-3.5 py-2.5 text-amber-900 font-semibold focus:border-amber-500 focus:outline-none transition-all cursor-pointer"
                   >
                     <option value="">-- Choose 2026 Festival / Holiday --</option>
-                    {OPTIONAL_HOLIDAYS_2026.map((h) => (
+                    {optionalHolidaysList.map((h: any) => (
                       <option key={h.date} value={h.date}>
                         {h.name} ({h.date})
                       </option>

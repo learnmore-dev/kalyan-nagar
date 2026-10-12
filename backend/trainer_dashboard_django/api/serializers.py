@@ -115,21 +115,36 @@ class BatchSerializer(serializers.ModelSerializer):
 
 
 class StudentSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = Student
         fields = '__all__'
+        read_only_fields = ['id']
 
     def to_internal_value(self, data):
         data = data.copy() if hasattr(data, 'copy') else dict(data)
         if 'batch_id' in data and not data.get('batch'):
             data['batch'] = data['batch_id']
+        # Convert empty email string to None to avoid EmailField validation error
+        if 'email' in data and data['email'] == '':
+            data['email'] = None
         return super().to_internal_value(data)
 
     def create(self, validated_data):
+        import uuid as _uuid
+        # Auto-generate id if not present (CharField PK with default=uuid4)
+        if not validated_data.get('id'):
+            validated_data['id'] = str(_uuid.uuid4())
         batch = validated_data.get('batch')
         if batch and not validated_data.get('batch_name'):
             validated_data['batch_name'] = batch.name
-        return super().create(validated_data)
+        student = super().create(validated_data)
+        # Update batch student count
+        if batch:
+            batch.total_students = batch.students.count()
+            batch.save(update_fields=['total_students'])
+        return student
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -216,6 +231,8 @@ class LeaveSerializer(serializers.ModelSerializer):
 
 
 class TrainerLeaveBalanceSerializer(serializers.ModelSerializer):
+    trainer_id = serializers.CharField(source='trainer.id', read_only=True)
+
     class Meta:
         model = TrainerLeaveBalance
         fields = '__all__'
@@ -226,8 +243,63 @@ class TrainerLeaveBalanceSerializer(serializers.ModelSerializer):
             data['trainer'] = data['trainer_id']
         return super().to_internal_value(data)
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        tid = str(instance.trainer_id or (instance.trainer.id if instance.trainer else ''))
+        data['trainer_id'] = tid
+
+        # Fetch actual approved leave counts for accurate breakdown reporting
+        approved_leaves = Leave.objects.filter(
+            Q(trainer_id=tid) | Q(trainer__id=tid),
+            status='approved'
+        )
+        casual_used = 0
+        sick_used = 0
+        emergency_used = 0
+        optional_used = 0
+        weekoff_used = 0
+
+        from datetime import datetime
+        for l in approved_leaves:
+            days = 1
+            try:
+                if l.start_date and l.end_date:
+                    s = datetime.strptime(str(l.start_date).strip(), '%Y-%m-%d')
+                    e = datetime.strptime(str(l.end_date).strip(), '%Y-%m-%d')
+                    days = max(1, (e - s).days + 1)
+            except Exception:
+                days = 1
+
+            if l.leave_type == 'casual':
+                casual_used += days
+            elif l.leave_type == 'sick':
+                sick_used += days
+            elif l.leave_type == 'emergency':
+                emergency_used += days
+            elif l.leave_type == 'optional_holiday':
+                optional_used += days
+            elif l.leave_type == 'weekoff':
+                weekoff_days = days
+                weekoff_used += days
+
+        cs_used = max(instance.casual_sick_used, casual_used + sick_used + emergency_used)
+        opt_used = max(instance.optional_holiday_used, optional_used)
+
+        data['casual_sick_used'] = cs_used
+        data['optional_holiday_used'] = opt_used
+        data['casual_used'] = casual_used
+        data['sick_used'] = sick_used
+        data['emergency_used'] = emergency_used
+        data['optional_used'] = optional_used
+        data['weekoff_used'] = weekoff_used
+        data['casual_sick_available'] = max(0, instance.casual_sick_quota - cs_used)
+        data['optional_holiday_available'] = max(0, instance.optional_holiday_quota - opt_used)
+        return data
+
 
 class LeaveAuditLogSerializer(serializers.ModelSerializer):
+    trainer_id = serializers.CharField(source='trainer.id', read_only=True)
+
     class Meta:
         model = LeaveAuditLog
         fields = '__all__'
@@ -237,6 +309,11 @@ class LeaveAuditLogSerializer(serializers.ModelSerializer):
         if 'trainer_id' in data and not data.get('trainer'):
             data['trainer'] = data['trainer_id']
         return super().to_internal_value(data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['trainer_id'] = str(instance.trainer_id or (instance.trainer.id if instance.trainer else ''))
+        return data
 
 
 class TaskLogSerializer(serializers.ModelSerializer):

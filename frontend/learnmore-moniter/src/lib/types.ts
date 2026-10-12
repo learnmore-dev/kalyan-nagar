@@ -214,12 +214,20 @@ export type TrainerLiveLoginStatus = 'logged_in' | 'late' | 'half_day' | 'not_lo
 
 export interface TrainerLeaveBalance {
   trainer_id: string;
+  trainer?: string;
   trainer_name: string;
   casual_sick_quota: number; // default 12
   casual_sick_used: number;
   optional_holiday_quota: number; // default 5
   optional_holiday_used: number;
   mandatory_holiday_count: number; // default 5
+  casual_used?: number;
+  sick_used?: number;
+  optional_used?: number;
+  emergency_used?: number;
+  weekoff_used?: number;
+  casual_sick_available?: number;
+  optional_holiday_available?: number;
 }
 
 export interface LeaveAuditLog {

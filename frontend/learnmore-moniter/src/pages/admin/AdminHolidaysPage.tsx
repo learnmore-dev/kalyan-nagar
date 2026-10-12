@@ -168,6 +168,7 @@ export default function AdminHolidaysPage() {
           type: 'success',
         });
         setDeductReason('');
+        fetchBalances();
       } else {
         setDeductMsg({ text: data?.error || 'Failed to deduct leave', type: 'error' });
       }

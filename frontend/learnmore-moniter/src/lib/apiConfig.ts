@@ -1,7 +1,7 @@
 export const DJANGO_API_URL =
   typeof window !== 'undefined'
     ? '/api'
-    : 'http://127.0.0.1:8000/api';
+    : 'http://127.0.0.1:8001/api';
 
 export function getApiUrl(path: string): string {
   let cleanPath = path.startsWith('/') ? path : `/${path}`;
