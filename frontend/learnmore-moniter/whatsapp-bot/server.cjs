@@ -4,6 +4,7 @@ const {
   DisconnectReason,
   fetchLatestBaileysVersion,
   Browsers,
+  makeCacheableSignalKeyStore,
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const QRCode = require('qrcode');
@@ -13,10 +14,24 @@ const fs = require('fs');
 
 const PORT = process.env.PORT || 5002;
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
+const BACKUP_CREDS_FILE = path.join(__dirname, 'creds_backup.json');
 
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
+
+// Auto-restore creds from persistent backup if creds.json was deleted or corrupted
+try {
+  const primaryCreds = path.join(AUTH_DIR, 'creds.json');
+  if (
+    (!fs.existsSync(primaryCreds) || fs.statSync(primaryCreds).size < 20) &&
+    fs.existsSync(BACKUP_CREDS_FILE) &&
+    fs.statSync(BACKUP_CREDS_FILE).size > 50
+  ) {
+    fs.copyFileSync(BACKUP_CREDS_FILE, primaryCreds);
+    console.log('🔄 Restored WhatsApp session from persistent creds_backup.json!');
+  }
+} catch (e) {}
 
 let sock = null;
 let isStarting = false;
@@ -67,6 +82,7 @@ async function startWhatsApp() {
       sock = null;
     }
 
+    const authLogger = pino({ level: 'silent' });
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     let version = [2, 3000, 1015901307];
     try {
@@ -82,14 +98,17 @@ async function startWhatsApp() {
 
     sock = makeWASocket({
       version,
-      logger: pino({ level: 'silent' }),
-      auth: state,
-      browser: Browsers.macOS('Desktop'),
+      logger: authLogger,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, authLogger),
+      },
+      browser: Browsers.ubuntu('Chrome'),
       syncFullHistory: false,
       markOnlineOnConnect: true,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 15000,
+      keepAliveIntervalMs: 25000,
       generateHighQualityLinkPreview: false,
       retryRequestOptions: {
         maxRetries: 5,
@@ -97,7 +116,16 @@ async function startWhatsApp() {
       },
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', async () => {
+      await saveCreds();
+      // Keep persistent backup of valid creds
+      try {
+        const primaryCreds = path.join(AUTH_DIR, 'creds.json');
+        if (fs.existsSync(primaryCreds) && fs.statSync(primaryCreds).size > 50) {
+          fs.copyFileSync(primaryCreds, BACKUP_CREDS_FILE);
+        }
+      } catch (e) {}
+    });
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -125,6 +153,16 @@ async function startWhatsApp() {
         botStatus.userName = sock?.user?.name || 'Admin';
         botStatus.lastConnectedAt = new Date().toISOString();
         console.log('✅ WhatsApp Connected Successfully! Logged in as:', sock?.user?.id);
+
+        // Save verified persistent backup of credentials
+        try {
+          const primaryCreds = path.join(AUTH_DIR, 'creds.json');
+          if (fs.existsSync(primaryCreds) && fs.statSync(primaryCreds).size > 50) {
+            fs.copyFileSync(primaryCreds, BACKUP_CREDS_FILE);
+            console.log('💾 Verified persistent backup of WhatsApp session saved.');
+          }
+        } catch (e) {}
+
         setTimeout(() => {
           refreshGroups();
         }, 4000);
@@ -133,33 +171,37 @@ async function startWhatsApp() {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const errorMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || '');
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+        const isExplicitLogout = userRequestedLogout;
+        const is401 = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-        if (userRequestedLogout || isLoggedOut) {
+        if (isExplicitLogout) {
           botStatus.isConnected = false;
           botStatus.status = 'scan_required';
           latestQrDataUrl = null;
           latestQrString = null;
           pairingCode = null;
-
-          if (userRequestedLogout) {
-            console.log('🚪 Manual user logout requested. Wiping auth session for fresh QR...');
-            userRequestedLogout = false;
-          } else {
-            console.log(`❌ WhatsApp Logged Out | Status: ${statusCode || 401} | Reason: ${errorMsg}. New QR scan required.`);
-          }
+          userRequestedLogout = false;
+          console.log('🚪 User manually requested logout. Wiping auth session for fresh QR...');
 
           try {
             if (fs.existsSync(AUTH_DIR)) {
               fs.rmSync(AUTH_DIR, { recursive: true, force: true });
             }
+            if (fs.existsSync(BACKUP_CREDS_FILE)) {
+              fs.unlinkSync(BACKUP_CREDS_FILE);
+            }
           } catch (e) {
             console.warn('Auth directory cleanup error:', e.message);
           }
           scheduleRestart(2000);
+        } else if (is401) {
+          // Status 401 can occur during token refresh or temporary socket drop.
+          // CRITICAL: NEVER delete AUTH_DIR automatically on unexpected 401!
+          console.warn(`⚠️ WhatsApp 401 notice: ${errorMsg}. Retaining session files and attempting reconnect in 5s...`);
+          botStatus.status = 'reconnecting';
+          scheduleRestart(5000);
         } else {
-          // Temporary network failure, 515 restartRequired, PM2/process restart, socket drop
-          // Retain saved auth credentials in AUTH_DIR and automatically reconnect
+          // Temporary network failure, 515 restartRequired, PM2 restart, socket drop
           botStatus.status = botStatus.isConnected ? 'reconnecting' : 'initializing';
           const delayMs = statusCode === DisconnectReason.restartRequired ? 1500 : 3000;
           console.log(`⚠️ WhatsApp connection closed | Status: ${statusCode || 'unknown'} | Reason: ${errorMsg}`);
