@@ -125,9 +125,9 @@ async function startWhatsApp() {
         botStatus.userName = sock?.user?.name || 'Admin';
         botStatus.lastConnectedAt = new Date().toISOString();
         console.log('✅ WhatsApp Connected Successfully! Logged in as:', sock?.user?.id);
-        setTimeout(async () => {
-          await refreshGroups(true);
-        }, 1500);
+        setTimeout(() => {
+          refreshGroups();
+        }, 4000);
       }
 
       if (connection === 'close') {
@@ -169,22 +169,6 @@ async function startWhatsApp() {
       }
     });
 
-    sock.ev.on('contacts.upsert', (newContacts) => {
-      newContacts.forEach((c) => {
-        if (c.id && (c.name || c.notify)) {
-          const existing = cachedContacts.find((item) => item.id === c.id);
-          if (!existing) {
-            cachedContacts.push({
-              id: c.id,
-              name: c.name || c.notify || c.id.split('@')[0],
-              phone: c.id.split('@')[0],
-              size: 1
-            });
-          }
-        }
-      });
-    });
-
     sock.ev.on('messages.upsert', async () => {
       // Message handler (if needed)
     });
@@ -196,7 +180,6 @@ async function startWhatsApp() {
   }
 }
 let cachedGroups = [];
-let cachedContacts = [];
 let lastGroupsFetchTime = 0;
 let isFetchingGroups = false;
 let lastGroupFetchAttempt = 0;
@@ -212,25 +195,33 @@ try {
 
 async function refreshGroups(force = false) {
   if (!botStatus.isConnected || !sock) return cachedGroups;
-  if (isFetchingGroups) return cachedGroups;
 
   const now = Date.now();
-  if (!force && cachedGroups.length > 0 && (now - lastGroupFetchAttempt < 15000)) {
+  if (!force && now - lastGroupFetchAttempt < 45000) {
     return cachedGroups;
   }
+
+  if (isFetchingGroups) {
+    let waited = 0;
+    while (isFetchingGroups && waited < 4000) {
+      await new Promise((r) => setTimeout(r, 200));
+      waited += 200;
+    }
+    if (cachedGroups.length > 0) return cachedGroups;
+  }
+
   isFetchingGroups = true;
   lastGroupFetchAttempt = now;
 
   try {
-    console.log('🔄 Querying participating groups & contacts from WhatsApp...');
+    console.log('🔄 Querying participating groups from WhatsApp...');
     const groupData = await sock.groupFetchAllParticipating();
     const list = Object.values(groupData).map((g) => ({
       id: g.id,
-      name: g.subject || g.name || 'WhatsApp Group',
+      name: g.subject,
       size: g.participants?.length || 0,
       creation: g.creation,
       owner: g.owner,
-      isGroup: true
     }));
 
     if (list.length > 0) {
@@ -240,13 +231,11 @@ async function refreshGroups(force = false) {
         fs.writeFileSync(GROUPS_CACHE_FILE, JSON.stringify(cachedGroups, null, 2));
       } catch (e) {}
       console.log(`✅ Loaded & cached ${cachedGroups.length} WhatsApp groups successfully!`);
-    } else {
-      console.log('ℹ️ 0 participating groups returned on first check, retrying in 3 seconds...');
-      setTimeout(() => { refreshGroups(true); }, 3000);
     }
   } catch (err) {
     console.warn('⚠️ Group fetch notice:', err.message);
     if (String(err.message).includes('rate-overlimit')) {
+      // Cooldown for 60 seconds
       lastGroupFetchAttempt = Date.now() + 60000;
     }
   } finally {
@@ -273,6 +262,84 @@ process.on('unhandledRejection', (err) => {
   console.error('Bot Unhandled Rejection:', err?.message || err);
 });
 
+// Helper: Fetch Group Invite Code with Retry
+async function getGroupInviteLinkWithRetry(groupId, maxRetries = 3) {
+  if (!sock) return { link: null, error: 'WhatsApp socket is not connected' };
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 600 : 1200));
+      const code = await sock.groupInviteCode(groupId);
+      if (code) {
+        return { link: `https://chat.whatsapp.com/${code}`, error: null };
+      }
+    } catch (err) {
+      lastErr = err;
+      console.log(`[invite-code] Attempt ${attempt} failed for ${groupId}:`, err.message);
+      // If error is not-authorized, retrying won't change WhatsApp server permissions
+      if (String(err.message).includes('not-authorized') || String(err?.output?.statusCode) === '401') {
+        break;
+      }
+    }
+  }
+  return { link: null, error: lastErr?.message || 'Could not retrieve invite code' };
+}
+
+// Helper: If participants could not be added due to WhatsApp privacy settings (status != 200/201, e.g. 403),
+// send them a direct private WhatsApp message containing the group invite link!
+async function notifyPrivacyRestrictedParticipants(groupId, groupName, updateResult, cachedInviteLink = null) {
+  if (!sock) return [];
+  const restrictedJids = [];
+
+  const results = Array.isArray(updateResult) ? updateResult : [updateResult].filter(Boolean);
+  for (const item of results) {
+    if (!item) continue;
+    const st = String(item.status || item.code || '');
+    if (st && st !== '200' && st !== '201') {
+      const targetJid = item.jid || item.content?.attrs?.jid || item.attrs?.jid;
+      if (targetJid && !restrictedJids.includes(targetJid)) {
+        restrictedJids.push(targetJid);
+      }
+    }
+  }
+
+  if (restrictedJids.length > 0) {
+    console.log(`[privacy-notice] ${restrictedJids.length} participant(s) blocked by privacy in "${groupName}":`, restrictedJids);
+    let link = cachedInviteLink;
+    if (!link) {
+      const inviteRes = await getGroupInviteLinkWithRetry(groupId);
+      link = typeof inviteRes === 'string' ? inviteRes : inviteRes?.link;
+    }
+
+    if (link) {
+      const inviteMsg = [
+        `👋 *Hello! Welcome to LearnMore Technologies.*`,
+        ``,
+        `You have been enrolled in batch: *${groupName}* 📚`,
+        `⚠️ Due to your WhatsApp privacy settings, we could not add you directly to the batch group.`,
+        ``,
+        `👉 *Please tap this link to join your batch group:*`,
+        `${link}`,
+        ``,
+        `_All daily class schedules and study materials will be shared in this group._ 🚀`,
+      ].join('\n');
+
+      for (const jid of restrictedJids) {
+        try {
+          await sock.sendMessage(jid, { text: inviteMsg });
+          console.log(`[privacy-notice] Successfully sent direct invite link to ${jid}`);
+        } catch (sendErr) {
+          console.error(`[privacy-notice] Failed to send private invite to ${jid}:`, sendErr.message);
+        }
+      }
+    } else {
+      console.log(`[privacy-notice] Warning: Could not obtain invite link for group ${groupId} to send to restricted users.`);
+    }
+  }
+
+  return restrictedJids;
+}
+
 // Lightweight HTTP API for Next.js & Django proxy
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -286,12 +353,24 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
 
+  const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50 MB
+
   const getBody = () =>
     new Promise((resolve) => {
-      let body = '';
-      req.on('data', (chunk) => (body += chunk));
+      const chunks = [];
+      let totalSize = 0;
+      req.on('data', (chunk) => {
+        totalSize += chunk.length;
+        if (totalSize > MAX_BODY_SIZE) {
+          req.destroy();
+          resolve({});
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', () => {
         try {
+          const body = Buffer.concat(chunks).toString('utf8');
           resolve(JSON.parse(body || '{}'));
         } catch {
           resolve({});
@@ -321,19 +400,17 @@ const server = http.createServer(async (req, res) => {
     const force = url.searchParams.get('force') === 'true';
     if (botStatus.isConnected && sock) {
       if (force) {
-        refreshGroups(true);
+        await refreshGroups(true);
       } else if (cachedGroups.length === 0) {
-        // Run group fetch with 2s max wait fallback
         await Promise.race([
           refreshGroups(false),
-          new Promise((resolve) => setTimeout(resolve, 2000))
+          new Promise((resolve) => setTimeout(resolve, 2000)),
         ]);
       }
     }
 
-    const allItems = [...cachedGroups, ...cachedContacts];
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: true, groups: allItems.length > 0 ? allItems : cachedGroups }));
+    return res.end(JSON.stringify({ success: true, groups: cachedGroups }));
   }
 
   // POST /pair-code
@@ -440,28 +517,44 @@ const server = http.createServer(async (req, res) => {
         throw new Error('Could not create WhatsApp group with provided participant numbers. Please verify phone numbers.');
       }
 
+      // Fetch group invite code with retry
+      const inviteObj = await getGroupInviteLinkWithRetry(group.id, 3);
+      const inviteLink = inviteObj?.link || null;
+
       // Add all participants to the group safely
+      let allUpdateResults = [];
       if (uniqueJids.length > 0) {
         try {
-          await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
+          const resAll = await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
+          allUpdateResults = Array.isArray(resAll) ? resAll : [resAll].filter(Boolean);
         } catch (batchAddErr) {
           console.log('Batch add participants failed, adding individually:', batchAddErr.message);
           for (const pJid of uniqueJids) {
             try {
-              await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
+              const resSingle = await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
+              if (Array.isArray(resSingle)) allUpdateResults.push(...resSingle);
+              else if (resSingle) allUpdateResults.push(resSingle);
             } catch (singleAddErr) {
               console.log(`Failed to add participant ${pJid}:`, singleAddErr.message);
+              allUpdateResults.push({ jid: pJid, status: '403' });
             }
           }
         }
       }
 
-      let inviteCode = '';
+      // Check for privacy restrictions (e.g. status 403) and send them the invite link directly via PM
+      const privacyNotified = await notifyPrivacyRestrictedParticipants(group.id, name, allUpdateResults, inviteLink);
+
+      // Immediately cache newly created group so it's instantly discoverable
+      cachedGroups.unshift({
+        id: group.id,
+        name: name || 'New Batch Group',
+        size: uniqueJids.length + 1,
+        creation: Math.floor(Date.now() / 1000),
+      });
       try {
-        inviteCode = await sock.groupInviteCode(group.id);
-      } catch (linkErr) {
-        console.log('Failed to fetch group invite code:', linkErr.message);
-      }
+        fs.writeFileSync(GROUPS_CACHE_FILE, JSON.stringify(cachedGroups, null, 2));
+      } catch (e) {}
 
       refreshGroups(true).catch(() => {});
 
@@ -471,7 +564,8 @@ const server = http.createServer(async (req, res) => {
           success: true,
           groupId: group.id,
           groupName: name,
-          inviteLink: inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : null,
+          inviteLink: inviteLink || null,
+          privacyNotified,
         })
       );
     } catch (err) {
@@ -481,10 +575,214 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // POST /group-invite-link — Fetch invite link for an existing group by groupId or groupName
+  if (req.method === 'POST' && url.pathname === '/group-invite-link') {
+    const body = await getBody();
+    let { groupId, groupName } = body;
+
+    console.log(`🔗 /group-invite-link requested. groupId="${groupId || ''}", groupName="${groupName || ''}"`);
+
+    if (!botStatus.isConnected || !sock) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot is not connected yet. Please check bot connection.' }));
+    }
+
+    const matchGroup = (list, target) => {
+      if (!target) return null;
+      const cleanTarget = target.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return list.find((g) => {
+        const gName = (g.name || g.subject || '').toLowerCase().trim();
+        const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+        return (
+          gName === target.toLowerCase() ||
+          (cleanGName && cleanTarget && (cleanGName === cleanTarget || cleanGName.includes(cleanTarget) || cleanTarget.includes(cleanGName)))
+        );
+      });
+    };
+
+    // If groupId is not provided or not ending with @g.us, try to resolve by groupName
+    if ((!groupId || !groupId.includes('@g.us')) && groupName) {
+      let found = matchGroup(cachedGroups, groupName);
+
+      if (!found) {
+        console.log(`[group-invite-link] Group "${groupName}" not found in current cache (${cachedGroups.length} items). Fetching live groups...`);
+        try {
+          await refreshGroups(true);
+          found = matchGroup(cachedGroups, groupName);
+        } catch (rfErr) {
+          console.warn('[group-invite-link] Live refresh warning:', rfErr.message);
+        }
+      }
+
+      if (found && found.id) {
+        groupId = found.id;
+        console.log(`[group-invite-link] Successfully resolved "${groupName}" -> ${groupId} ("${found.name || found.subject}")`);
+      }
+    }
+
+    if (!groupId) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: false,
+        error: `WhatsApp group "${groupName || 'Unknown'}" was not found on connected WhatsApp account. You can paste the link manually.`
+      }));
+    }
+
+    try {
+      // 1. Inspect actual group metadata & admin rights
+      let meta = null;
+      let isMember = false;
+      let isAdmin = false;
+      const botJidRaw = sock.user?.id || '';
+      const botPhone = botJidRaw.split(':')[0].replace(/[^0-9]/g, '');
+      const botLidRaw = sock.user?.lid || '';
+      const botLidClean = botLidRaw.split(':')[0].replace(/[^0-9]/g, '');
+
+      try {
+        meta = await sock.groupMetadata(groupId);
+        if (meta && Array.isArray(meta.participants)) {
+          const selfP = meta.participants.find((p) => {
+            const pNum = (p.id || p.jid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+            const pLid = (p.lid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+            return (botPhone && pNum === botPhone) || (botLidClean && pLid === botLidClean);
+          });
+          if (selfP) {
+            isMember = true;
+            isAdmin = selfP.admin === 'admin' || selfP.admin === 'superadmin';
+          }
+        }
+      } catch (metaErr) {
+        console.warn(`[group-invite-link] groupMetadata notice for ${groupId}:`, metaErr.message);
+      }
+
+      // 2. Fetch the invite code with retry
+      let { link: inviteLink, error: inviteErr } = await getGroupInviteLinkWithRetry(groupId, 2);
+
+      // Fallback: Check if group description contains an invite link
+      if (!inviteLink && meta && meta.desc) {
+        const linkMatch = meta.desc.match(/https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/i);
+        if (linkMatch) {
+          inviteLink = linkMatch[0];
+          console.log(`[group-invite-link] ✅ Extracted invite link from group description: ${inviteLink}`);
+        }
+      }
+
+      if (!inviteLink) {
+        let errorMsg = '';
+        if (meta && !isMember) {
+          errorMsg = `WhatsApp authorization error: Connected bot account (+${botPhone}) is NOT a member of group "${meta.subject || groupId}". Please add +${botPhone} to the group and promote it to Admin.`;
+        } else if (meta && !isAdmin) {
+          errorMsg = `WhatsApp authorization error: Connected bot account (+${botPhone}) is a member, but NOT an Admin in group "${meta.subject || groupId}". In WhatsApp, only group admins can retrieve the group invite link. Please make +${botPhone} a Group Admin in WhatsApp.`;
+        } else if (String(inviteErr).includes('not-authorized')) {
+          errorMsg = `WhatsApp rejected invite code request (not-authorized). Connected bot account (+${botPhone}) lacks Admin rights in group "${meta?.subject || groupId}". Please promote +${botPhone} to Group Admin.`;
+        } else {
+          errorMsg = `Could not generate WhatsApp invite link: ${inviteErr || 'Unknown error'}. Ensure connected bot (+${botPhone}) is an Admin.`;
+        }
+
+        console.error(`[group-invite-link] ❌ Failed for ${groupId}: ${errorMsg}`);
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          success: false,
+          error: errorMsg,
+          groupId,
+          groupName: meta?.subject || groupName || '',
+          connectedPhone: botPhone,
+          isMember,
+          isAdmin,
+        }));
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        groupId,
+        groupName: meta?.subject || groupName || '',
+        inviteLink,
+      }));
+    } catch (err) {
+      console.error('group-invite-link error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
+  // GET /group-inspect?groupId=... — Inspect group metadata, participants and permissions
+  if (req.method === 'GET' && url.pathname === '/group-inspect') {
+    const targetGid = url.searchParams.get('groupId') || url.searchParams.get('id');
+    if (!targetGid) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'groupId query parameter is required' }));
+    }
+    if (!botStatus.isConnected || !sock) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot not connected' }));
+    }
+
+    try {
+      const meta = await sock.groupMetadata(targetGid);
+      const botJidRaw = sock.user?.id || '';
+      const botPhone = botJidRaw.split(':')[0].replace(/[^0-9]/g, '');
+      const botLidRaw = sock.user?.lid || '';
+      const botLidClean = botLidRaw.split(':')[0].replace(/[^0-9]/g, '');
+
+      const participants = (meta.participants || []).map((p) => {
+        const pNum = (p.id || p.jid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        const pLid = (p.lid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        const isBot = (botPhone && pNum === botPhone) || (botLidClean && pLid === botLidClean);
+        return {
+          id: p.id,
+          phone: pNum,
+          admin: p.admin,
+          isBot,
+        };
+      });
+
+      const botParticipant = participants.find((p) => p.isBot);
+      const isMember = !!botParticipant;
+      const isAdmin = botParticipant?.admin === 'admin' || botParticipant?.admin === 'superadmin';
+
+      let testInvite = null;
+      let testInviteError = null;
+      try {
+        const code = await sock.groupInviteCode(targetGid);
+        if (code) testInvite = `https://chat.whatsapp.com/${code}`;
+      } catch (err) {
+        testInviteError = err.message;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(
+        JSON.stringify({
+          success: true,
+          groupId: targetGid,
+          subject: meta.subject,
+          owner: meta.owner || meta.subjectOwner,
+          creation: meta.creation,
+          connectedBot: {
+            phone: botPhone,
+            jid: botJidRaw,
+            isMember,
+            isAdmin,
+            adminRole: botParticipant?.admin || null,
+          },
+          testInviteResult: {
+            inviteLink: testInvite,
+            error: testInviteError,
+          },
+          totalParticipants: participants.length,
+          admins: participants.filter((p) => p.admin),
+        })
+      );
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
+
   // POST /group-participants (Add or Remove group members dynamically)
   if (req.method === 'POST' && url.pathname === '/group-participants') {
     const body = await getBody();
-    const { groupId, participants = [], action = 'add' } = body;
+    const { groupId, participants = [], action = 'add', groupName } = body;
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -534,6 +832,14 @@ const server = http.createServer(async (req, res) => {
       console.log(`[group-participants] Action: ${action} on ${resolvedGroupId} for:`, jids);
       const updateResult = await sock.groupParticipantsUpdate(resolvedGroupId, jids, action === 'remove' ? 'remove' : 'add');
 
+      // If adding participants, check if any could not be added due to WhatsApp privacy settings
+      let privacySent = [];
+      if (action === 'add') {
+        const groupObj = cachedGroups.find((g) => g.id === resolvedGroupId);
+        const resolvedName = groupName || groupObj?.name || groupObj?.subject || 'Batch Group';
+        privacySent = await notifyPrivacyRestrictedParticipants(resolvedGroupId, resolvedName, updateResult);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(
         JSON.stringify({
@@ -541,6 +847,7 @@ const server = http.createServer(async (req, res) => {
           groupId: resolvedGroupId,
           action,
           result: updateResult,
+          inviteSentToPrivacy: privacySent,
         })
       );
     } catch (err) {
@@ -555,8 +862,6 @@ const server = http.createServer(async (req, res) => {
     const body = await getBody();
     const { target, text, document, fileName, mimeType, image } = body;
 
-    console.log(`📨 /send-message received for target "${target}". hasDoc: ${!!document}, fileName: ${fileName || 'none'}, textLen: ${text?.length || 0}`);
-
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       return res.end(
@@ -568,52 +873,67 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      let jid = target;
+      let jid = String(target || '').trim();
       if (!jid.includes('@')) {
-        const clean = target.replace(/[^0-9]/g, '');
-        jid = `${clean}@s.whatsapp.net`;
+        const targetClean = jid.toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Search in cached groups
+        const found = cachedGroups.find((g) => {
+          const gName = (g.name || g.subject || '').toLowerCase().trim();
+          const cleanGName = gName.replace(/[^a-z0-9]/g, '');
+          return gName === jid.toLowerCase() || (cleanGName && (cleanGName === targetClean || cleanGName.includes(targetClean) || targetClean.includes(cleanGName)));
+        });
+
+        if (found && found.id) {
+          jid = found.id;
+          console.log(`[send-msg] Resolved group name "${target}" to group JID: ${jid}`);
+        } else {
+          const cleanNum = jid.replace(/[^0-9]/g, '');
+          jid = cleanNum.length >= 10 ? `${cleanNum.startsWith('91') ? cleanNum : '91' + cleanNum}@s.whatsapp.net` : `${cleanNum}@s.whatsapp.net`;
+        }
       }
+
+      console.log(`[send-msg] jid=${jid} | doc=${!!document} | img=${!!image} | txt=${!!text}`);
 
       let result;
 
       if (document) {
-        const base64Data = String(document).replace(/^data:.*?;base64,/, '');
-        const buffer = Buffer.from(base64Data, 'base64');
-        console.log(`📎 Sending document to ${jid}: ${fileName || 'file.pdf'} (${buffer.length} bytes)`);
-        
-        // 1. Send the text message if present
-        if (text && text.trim()) {
-          try {
-            await sock.sendMessage(jid, { text: text.trim() });
-          } catch (textErr) {
-            console.warn('Text message send before doc error:', textErr.message);
-          }
-        }
+        const base64Data = document.includes(',') ? document.split(',')[1] : document;
+        const docBuffer = Buffer.from(base64Data, 'base64');
+        const resolvedMime = mimeType || 'application/octet-stream';
+        const resolvedFileName = fileName || 'document';
+        console.log(`[send-msg] Sending doc: ${resolvedFileName} | mime: ${resolvedMime} | size: ${docBuffer.length} bytes`);
 
-        // 2. Send the document file
+        if (text) {
+          await sock.sendMessage(jid, { text });
+          console.log('[send-msg] Text sent, now sending document...');
+        }
         result = await sock.sendMessage(jid, {
-          document: buffer,
-          mimetype: mimeType || 'application/pdf',
-          fileName: fileName || 'Topic-Notes.pdf',
+          document: docBuffer,
+          fileName: resolvedFileName,
+          mimetype: resolvedMime,
         });
-        console.log(`✅ Document "${fileName}" sent successfully to ${jid}!`);
+        console.log(`[send-msg] Document sent OK to ${jid}`);
       } else if (image) {
-        const base64Data = String(image).replace(/^data:.*?;base64,/, '');
-        const buffer = Buffer.from(base64Data, 'base64');
+        const base64Data = image.includes(',') ? image.split(',')[1] : image;
+        const imgBuffer = Buffer.from(base64Data, 'base64');
+        console.log(`[send-msg] Sending image size: ${imgBuffer.length} bytes`);
         result = await sock.sendMessage(jid, {
-          image: buffer,
-          caption: text || undefined,
+          image: imgBuffer,
+          caption: text || '',
         });
+        console.log(`[send-msg] Image sent OK to ${jid}`);
+      } else if (text) {
+        result = await sock.sendMessage(jid, { text });
+        console.log(`[send-msg] Text sent OK to ${jid}`);
       } else {
-        result = await sock.sendMessage(jid, {
-          text: text || '',
-        });
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ success: false, error: 'No text, document, or image provided.' }));
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, result }));
     } catch (err) {
-      console.error('❌ Failed to send WhatsApp message/doc:', err);
+      console.error('[send-msg] ERROR:', err.message, err.stack?.split('\n')[1] || '');
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }

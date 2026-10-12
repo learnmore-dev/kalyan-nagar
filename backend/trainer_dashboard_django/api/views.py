@@ -1716,55 +1716,53 @@ def whatsapp_sync_invite_link_view(request):
 
     BAILEYS_URL = 'http://127.0.0.1:5002'
 
-    # If group_id is missing or doesn't end with @g.us, auto-detect group from Baileys active groups by name
-    if (not group_id or '@g.us' not in group_id) and group_name:
-        try:
-            gr_res = _req.get(f"{BAILEYS_URL}/groups", timeout=6)
-            if gr_res.ok:
-                groups_list = gr_res.json().get('groups', [])
-                clean_target = group_name.lower().replace('-', '').replace(' ', '')
-                for g in groups_list:
-                    g_name = (g.get('name') or g.get('subject') or '').lower()
-                    g_clean = g_name.replace('-', '').replace(' ', '')
-                    if g_clean == clean_target or (clean_target and clean_target in g_clean) or (g_clean and g_clean in clean_target):
-                        found_id = g.get('id')
-                        if found_id and '@g.us' in found_id:
-                            group_id = found_id
-                            if batch:
-                                batch.whatsapp_group_id = group_id
-                                batch.save(update_fields=['whatsapp_group_id'])
-                            break
-        except Exception as e:
-            print("Error finding group by name in sync-invite-link:", e)
-
-    if not group_id:
-        return Response({
-            'success': False,
-            'error': f'WhatsApp group "{group_name or batch_id}" was not found on connected WhatsApp. Please paste the link manually.'
-        }, status=status.HTTP_404_NOT_FOUND)
-
     try:
         r = _req.post(
             f"{BAILEYS_URL}/group-invite-link",
             json={'groupId': group_id, 'groupName': group_name},
-            timeout=15
+            timeout=20
         )
         if r.ok:
             resp = r.json()
-            invite_link = resp.get('inviteLink') or resp.get('link') or ''
-            resolved_gid = resp.get('groupId') or group_id
-            if invite_link and batch:
-                batch.whatsapp_group_link = invite_link
-                if resolved_gid and resolved_gid != batch.whatsapp_group_id:
-                    batch.whatsapp_group_id = resolved_gid
-                    batch.save(update_fields=['whatsapp_group_link', 'whatsapp_group_id'])
-                else:
-                    batch.save(update_fields=['whatsapp_group_link'])
-            return Response({'success': True, 'inviteLink': invite_link, 'groupId': resolved_gid})
-        return Response({'success': False, 'error': f'Baileys returned HTTP {r.status_code}'}, status=status.HTTP_502_BAD_GATEWAY)
+            if resp.get('success') and resp.get('inviteLink'):
+                invite_link = resp.get('inviteLink') or resp.get('link') or ''
+                resolved_gid = resp.get('groupId') or group_id
+                if invite_link and batch:
+                    batch.whatsapp_group_link = invite_link
+                    if resolved_gid and resolved_gid != batch.whatsapp_group_id:
+                        batch.whatsapp_group_id = resolved_gid
+                        batch.save(update_fields=['whatsapp_group_link', 'whatsapp_group_id'])
+                    else:
+                        batch.save(update_fields=['whatsapp_group_link'])
+                return Response({
+                    'success': True,
+                    'inviteLink': invite_link,
+                    'groupId': resolved_gid,
+                    'message': 'WhatsApp invite link synced successfully'
+                })
+            else:
+                err_msg = resp.get('error') or f'WhatsApp group "{group_name or batch_id}" invite link could not be retrieved.'
+                return Response({
+                    'success': False,
+                    'error': err_msg
+                }, status=status.HTTP_403_FORBIDDEN if 'Admin' in err_msg else status.HTTP_400_BAD_REQUEST)
+        else:
+            try:
+                err_data = r.json()
+                err_msg = err_data.get('error')
+            except Exception:
+                err_msg = None
+            return Response({
+                'success': False,
+                'error': err_msg or f'Could not sync link (HTTP {r.status_code}). Please verify bot is online or paste manually.'
+            }, status=r.status_code if r.status_code in [400, 403, 404, 503] else status.HTTP_500_INTERNAL_SERVER_ERROR)
     except _req.exceptions.ConnectionError:
-        return Response({'success': False, 'error': 'WhatsApp Bot (Baileys) is not running. Try pasting the link manually.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({
+            'success': False,
+            'error': 'WhatsApp Bot is offline or unreachable on port 5002. Please ensure bot is running.'
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception as e:
+        print("sync-invite-link error:", e)
         return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
