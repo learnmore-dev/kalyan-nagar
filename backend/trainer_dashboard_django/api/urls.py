@@ -17,6 +17,7 @@ from .views import (
     auth_verify_otp_view,
     auth_reset_password_view,
     whatsapp_bot_gateway,
+    whatsapp_sync_invite_link_view,
     reports_summary_view,
     monitoring_summary_view,
     trainer_timeline_view,
@@ -33,6 +34,7 @@ from .views import (
 router = DefaultRouter()
 router.trailing_slash = '/?'
 router.register(r'users', UserProfileViewSet, basename='user')
+router.register(r'trainers', UserProfileViewSet, basename='trainer')
 router.register(r'courses', CourseViewSet, basename='course')
 router.register(r'batches', BatchViewSet, basename='batch')
 router.register(r'students', StudentViewSet, basename='student')
@@ -55,6 +57,8 @@ urlpatterns = [
     path('auth/reset-password', auth_reset_password_view, name='auth-reset-password-noslash'),
     path('whatsapp/bot', whatsapp_bot_gateway, name='whatsapp-bot-gateway'),
     path('whatsapp/bot/', whatsapp_bot_gateway, name='whatsapp-bot-gateway-slash'),
+    path('whatsapp/sync-invite-link', whatsapp_sync_invite_link_view, name='whatsapp-sync-invite-link'),
+    path('whatsapp/sync-invite-link/', whatsapp_sync_invite_link_view, name='whatsapp-sync-invite-link-slash'),
     path('reports', reports_summary_view, name='reports-summary'),
     path('reports/', reports_summary_view, name='reports-summary-slash'),
     path('monitoring', monitoring_summary_view, name='monitoring-summary'),

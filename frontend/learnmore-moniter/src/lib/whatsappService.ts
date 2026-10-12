@@ -621,18 +621,18 @@ class WhatsAppService {
       `${params.topicCovered.trim()}`,
     ].join('\n');
 
-    let targetJid = params.batch.whatsapp_group_id;
+    let targetJid = params.batch.whatsapp_group_id || '';
     if (!targetJid || !targetJid.includes('@g.us')) {
       const liveGroupJid = await findGroupJidByName(params.batch.whatsapp_group_name || params.batch.name);
       if (liveGroupJid) targetJid = liveGroupJid;
-    }
-
-    if (!targetJid) {
-      targetJid = params.batch.whatsapp_group_name || params.batch.name;
+      if (!targetJid && params.batch.name) {
+        const byBatchName = await findGroupJidByName(params.batch.name);
+        if (byBatchName) targetJid = byBatchName;
+      }
     }
 
     let sent = false;
-    if (targetJid) {
+    if (targetJid && targetJid.includes('@g.us')) {
       try {
         sent = await callBaileysSend(targetJid, formattedMessage, false, params.attachment);
       } catch {}

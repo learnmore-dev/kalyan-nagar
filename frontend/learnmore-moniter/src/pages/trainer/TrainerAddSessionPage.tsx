@@ -103,15 +103,31 @@ export default function TrainerAddSessionPage() {
 
     const fetchBatches = async () => {
       try {
-        const res = await fetch(`/api/batches/?trainer_id=${u?.id || ''}`);
+        const queryTrainer = u?.role === 'admin' ? '' : (u?.id || '');
+        const res = await fetch(`/api/batches/${queryTrainer ? `?trainer_id=${encodeURIComponent(queryTrainer)}` : ''}`);
         const data = await res.json();
-        if (data.success) {
-          const myBatches = (data.batches || []).filter(
-            (b: Batch) => b.trainer_id === u?.id || b.trainer_name?.toLowerCase() === u?.name?.toLowerCase()
-          );
+        if (data.success && Array.isArray(data.batches)) {
+          let myBatches = data.batches;
+          if (u?.role !== 'admin') {
+            const filtered = data.batches.filter(
+              (b: any) =>
+                b.trainer === u?.id ||
+                b.trainer_id === u?.id ||
+                b.trainer_name?.toLowerCase() === u?.name?.toLowerCase() ||
+                b.trainer_name?.toLowerCase() === u?.username?.toLowerCase()
+            );
+            if (filtered.length > 0) {
+              myBatches = filtered;
+            }
+          }
           setBatches(myBatches);
-          if (!selectedBatchId && myBatches.length > 0) {
-            setSelectedBatchId(preSelectedBatchId || myBatches[0].id);
+          if (myBatches.length > 0) {
+            const exists = myBatches.some((b: any) => String(b.id) === String(preSelectedBatchId));
+            if (exists) {
+              setSelectedBatchId(preSelectedBatchId);
+            } else if (!selectedBatchId || !myBatches.some((b: any) => String(b.id) === String(selectedBatchId))) {
+              setSelectedBatchId(String(myBatches[0].id));
+            }
           }
         }
       } catch {
@@ -128,7 +144,7 @@ export default function TrainerAddSessionPage() {
     const fetchStudents = async () => {
       setLoadingStudents(true);
       try {
-        const res = await fetch(`/api/students?batch_id=${selectedBatchId}`);
+        const res = await fetch(`/api/students?batch_id=${encodeURIComponent(selectedBatchId)}`);
         const data = await res.json();
         if (data.success && data.students) {
           setStudents(data.students);
@@ -182,7 +198,7 @@ export default function TrainerAddSessionPage() {
   const totalCount = students.length;
   const attendancePct = totalCount > 0 ? Math.round((presentCount / totalCount) * 100) : 100;
 
-  const currentBatchObj = batches.find((b) => b.id === selectedBatchId);
+  const currentBatchObj = batches.find((b) => String(b.id) === String(selectedBatchId));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -236,24 +252,40 @@ export default function TrainerAddSessionPage() {
         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(formattedMessage)}`;
         setWhatsappShareUrl(waUrl);
 
-        if (autoSendWhatsApp && currentBatchObj) {
+        let broadcastDelivered = data.whatsapp_broadcast?.sent === true;
+        let deliveredGroup = data.whatsapp_broadcast?.group_name || currentBatchObj?.whatsapp_group_name || currentBatchObj?.name || 'Batch Group';
+
+        // Client-side fallback if backend reported not sent or skipped
+        if (autoSendWhatsApp && !broadcastDelivered && currentBatchObj) {
           try {
-            await whatsappService.sendBatchTopicAndDocument({
+            const clientRes = await whatsappService.sendBatchTopicAndDocument({
               batch: currentBatchObj,
               topicCovered: topicCovered,
               date: sessionDate,
             });
-          } catch {}
+            if (clientRes && clientRes.success) {
+              broadcastDelivered = true;
+              deliveredGroup = clientRes.deliveredTo || deliveredGroup;
+            }
+          } catch (e) {
+            console.warn('Frontend broadcast fallback error:', e);
+          }
         }
 
-        const groupLabel = currentBatchObj?.whatsapp_group_name || currentBatchObj?.name;
-        setSuccessMsg(
-          `Session saved successfully! ${
-            autoSendWhatsApp
-              ? `Topic Covered broadcasted to WhatsApp Group: "${groupLabel}"! 🚀`
-              : ''
-          }`
-        );
+        if (autoSendWhatsApp) {
+          if (broadcastDelivered) {
+            setSuccessMsg(
+              `Session saved successfully! 🚀 Topic Covered broadcasted to WhatsApp Group: "${deliveredGroup}"!`
+            );
+          } else {
+            const errReason = data.whatsapp_broadcast?.error || 'WhatsApp Group not linked or Bot disconnected';
+            setSuccessMsg(
+              `Session saved in portal! ⚠️ WhatsApp group broadcast note: ${errReason}. You can click "Open Broadcast in WhatsApp" below to share immediately!`
+            );
+          }
+        } else {
+          setSuccessMsg('Session saved successfully!');
+        }
 
         setTopicCovered('');
       }

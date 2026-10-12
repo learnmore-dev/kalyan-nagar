@@ -115,6 +115,7 @@ export default function AdminCreateBatchPage() {
   };
   const [selectedMonth, setSelectedMonth] = useState<string>(() => getMonthFromDate(startDate));
   const [mode, setMode] = useState<'OFF' | 'ON'>('OFF');
+  const [schedule, setSchedule] = useState<'WD' | 'WE'>('WD');
   const [batchTime, setBatchTime] = useState<string>('10AM');
   const [courseCode, setCourseCode] = useState<string>('SQL');
 
@@ -170,10 +171,10 @@ export default function AdminCreateBatchPage() {
   };
 
   useEffect(() => {
-    const formatted = `LMT-${branch}-${selectedMonth}-${mode}-${courseCode}-${batchTime}`.toUpperCase();
+    const formatted = `LMT-${branch}-${selectedMonth}-${mode}-${schedule}-${courseCode}-${batchTime}`.toUpperCase();
     setWhatsappGroupName(formatted);
     setName(formatted);
-  }, [branch, selectedMonth, mode, courseCode, batchTime]);
+  }, [branch, selectedMonth, mode, schedule, courseCode, batchTime]);
 
   const handleBatchNameChange = (val: string) => {
     setName(val);
@@ -511,7 +512,7 @@ export default function AdminCreateBatchPage() {
                   <MessageSquare className="h-4 w-4 text-[#25D366]" /> Automated WhatsApp Group Setup
                 </span>
                 <p className="text-[11px] text-emerald-700">
-                  Auto-builds standard group name: <code className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-mono font-bold">LMT-BRANCH-MONTH-MODE-COURSE-TIME</code>
+                  Auto-builds standard group name: <code className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-mono font-bold">LMT-BRANCH-MONTH-MODE-DAYS-COURSE-TIME</code>
                 </p>
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
@@ -527,7 +528,7 @@ export default function AdminCreateBatchPage() {
 
             {autoCreateWhatsApp && (
               <div className="space-y-3.5 pt-2 border-t border-emerald-200/60">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                   <div className="space-y-1">
                     <label className="block font-bold text-emerald-900 text-[10px] uppercase tracking-wider">
                       1. Branch *
@@ -576,7 +577,21 @@ export default function AdminCreateBatchPage() {
 
                   <div className="space-y-1">
                     <label className="block font-bold text-emerald-900 text-[10px] uppercase tracking-wider">
-                      4. Course Code *
+                      4. Days *
+                    </label>
+                    <select
+                      value={schedule}
+                      onChange={(e) => setSchedule(e.target.value as 'WD' | 'WE')}
+                      className="w-full rounded-xl border border-emerald-300 bg-white px-2.5 py-2 text-slate-800 text-xs font-bold focus:outline-none focus:border-emerald-600 cursor-pointer"
+                    >
+                      <option value="WD">WD (Weekdays)</option>
+                      <option value="WE">WE (Weekend)</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-bold text-emerald-900 text-[10px] uppercase tracking-wider">
+                      5. Course Code *
                     </label>
                     <input
                       type="text"
@@ -587,9 +602,9 @@ export default function AdminCreateBatchPage() {
                     />
                   </div>
 
-                  <div className="space-y-1 col-span-2 sm:col-span-1">
+                  <div className="space-y-1">
                     <label className="block font-bold text-emerald-900 text-[10px] uppercase tracking-wider">
-                      5. Time *
+                      6. Time *
                     </label>
                     <input
                       type="text"

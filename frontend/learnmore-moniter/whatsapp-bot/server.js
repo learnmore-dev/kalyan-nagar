@@ -465,6 +465,33 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
   }
+  // POST /group-invite-link — Fetch invite link for an existing group by groupId
+  if (req.method === 'POST' && url.pathname === '/group-invite-link') {
+    const body = await getBody();
+    const { groupId } = body;
+
+    if (!botStatus.isConnected || !sock) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot is not connected yet.' }));
+    }
+    if (!groupId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: 'groupId is required' }));
+    }
+
+    try {
+      const inviteCode = await sock.groupInviteCode(groupId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        success: true,
+        inviteLink: inviteCode ? `https://chat.whatsapp.com/${inviteCode}` : null,
+      }));
+    } catch (err) {
+      console.error('group-invite-link error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: false, error: err.message }));
+    }
+  }
 
   // POST /group-participants (Add or Remove group members dynamically)
   if (req.method === 'POST' && url.pathname === '/group-participants') {

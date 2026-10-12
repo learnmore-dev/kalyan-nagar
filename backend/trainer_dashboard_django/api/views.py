@@ -127,6 +127,43 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response({'success': True, 'user': serializer.data, 'message': 'User created successfully.'}, status=status.HTTP_201_CREATED, headers=headers)
 
+    def retrieve(self, request, *args, **kwargs):
+        trainer_id = kwargs.get('pk')
+        user = UserProfile.objects.filter(id=trainer_id).first()
+        if not user:
+            try:
+                user = self.get_object()
+            except Exception:
+                user = None
+        if not user:
+            return Response({'success': False, 'error': 'Trainer not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        batches = Batch.objects.filter(Q(trainer=user) | Q(trainer_id=str(user.id)))
+        attendances = TrainerAttendance.objects.filter(Q(trainer=user) | Q(trainer_id=str(user.id))).order_by('-date')
+        leaves = Leave.objects.filter(Q(trainer=user) | Q(trainer_id=str(user.id))).order_by('-created_at')
+        sessions = WorkSession.objects.filter(Q(trainer=user) | Q(trainer_id=str(user.id))).order_by('-session_date')
+        audit_logs = LeaveAuditLog.objects.filter(Q(trainer=user) | Q(trainer_id=str(user.id))).order_by('-created_at')
+        live_act = LiveActivity.objects.filter(trainer=user).first()
+
+        # Sync leave balance
+        sync_trainer_balance(user.id)
+        bal, _ = TrainerLeaveBalance.objects.get_or_create(
+            trainer=user,
+            defaults={'trainer_name': user.name, 'casual_sick_quota': 12, 'casual_sick_used': 0, 'optional_holiday_quota': 5, 'optional_holiday_used': 0}
+        )
+
+        return Response({
+            'success': True,
+            'trainer': UserProfileSerializer(user).data,
+            'batches': BatchSerializer(batches, many=True).data,
+            'attendances': TrainerAttendanceSerializer(attendances, many=True).data,
+            'leaves': LeaveSerializer(leaves, many=True).data,
+            'leaveBalance': TrainerLeaveBalanceSerializer(bal).data,
+            'auditLogs': LeaveAuditLogSerializer(audit_logs, many=True).data,
+            'sessions': WorkSessionSerializer(sessions, many=True).data,
+            'liveActivity': LiveActivitySerializer(live_act).data if live_act else None
+        })
+
     def destroy(self, request, *args, **kwargs):
         trainer_id = kwargs.get('pk') or request.query_params.get('id')
         user = UserProfile.objects.filter(id=trainer_id).first() if trainer_id else None
@@ -430,8 +467,12 @@ class BatchViewSet(viewsets.ModelViewSet):
         trainer_id = request.query_params.get('trainer_id') or request.query_params.get('trainer')
         batch_type = request.query_params.get('batch_type')
         enquiry_id = request.query_params.get('enquiry_id')
-        if trainer_id:
-            queryset = queryset.filter(trainer_id=trainer_id)
+        if trainer_id and str(trainer_id).lower() not in ['usr_admin', 'admin', 'all', '', 'none']:
+            queryset = queryset.filter(
+                Q(trainer_id=trainer_id) |
+                Q(trainer__username=trainer_id) |
+                Q(trainer_name__iexact=trainer_id)
+            )
         if batch_type:
             queryset = queryset.filter(batch_type=batch_type)
         if enquiry_id:
@@ -699,6 +740,31 @@ class StudentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'students': serializer.data})
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            # Flatten DRF field errors into a human-readable message
+            errors = serializer.errors
+            msg_parts = []
+            for field, errs in errors.items():
+                msg_parts.append(f"{field}: {', '.join(str(e) for e in errs)}")
+            return Response(
+                {'success': False, 'error': ' | '.join(msg_parts), 'detail': errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        student = serializer.save()
+        return Response({'success': True, 'student': serializer.data}, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        student = self.get_object()
+        batch = student.batch
+        student.delete()
+        # Update batch student count after deletion
+        if batch:
+            batch.total_students = batch.students.count()
+            batch.save(update_fields=['total_students'])
+        return Response({'success': True}, status=status.HTTP_200_OK)
+
 
 class WorkSessionViewSet(viewsets.ModelViewSet):
     queryset = WorkSession.objects.all().order_by('-created_at')
@@ -735,7 +801,90 @@ class WorkSessionViewSet(viewsets.ModelViewSet):
                 batch.completed_at = timezone.now()
             batch.save()
 
-        return Response({'success': True, 'session': serializer.data}, status=status.HTTP_201_CREATED)
+        # Automatic WhatsApp broadcast to Batch Group
+        whatsapp_result = {'sent': False}
+        whatsapp_sent_param = request.data.get('whatsapp_sent')
+        should_send_wa = True if whatsapp_sent_param is None else str(whatsapp_sent_param).lower() in ['true', '1', 'yes']
+
+        if should_send_wa and batch:
+            target_jid = (batch.whatsapp_group_id or '').strip()
+            group_label = batch.whatsapp_group_name or batch.name
+
+            # If no group ID stored on batch, attempt to resolve live from Baileys
+            if not target_jid or not target_jid.endswith('@g.us'):
+                try:
+                    gr_res = requests.get(f"{BAILEYS_URL}/groups", timeout=4.0)
+                    if gr_res.ok:
+                        groups_list = gr_res.json().get('groups', [])
+                        target_clean = group_label.lower().replace('-', '').replace(' ', '')
+                        for g in groups_list:
+                            g_name = (g.get('name') or g.get('subject') or '').lower()
+                            g_clean = g_name.replace('-', '').replace(' ', '')
+                            if g_clean == target_clean or (target_clean and target_clean in g_clean) or (g_clean and g_clean in target_clean):
+                                found_id = g.get('id')
+                                if found_id and '@g.us' in found_id:
+                                    target_jid = found_id
+                                    batch.whatsapp_group_id = target_jid
+                                    batch.save(update_fields=['whatsapp_group_id'])
+                                    break
+                except Exception:
+                    pass
+
+            if target_jid and '@g.us' in target_jid:
+                topic_text = (session_obj.description or '').strip()
+                if not topic_text and session_obj.selected_topics:
+                    topic_text = ', '.join(session_obj.selected_topics)
+                if not topic_text:
+                    topic_text = 'Class session completed.'
+
+                broadcast_msg = (
+                    f"🏷️ *Batch:* {batch.name}\n"
+                    f"📅 *Date:* {session_obj.session_date}\n"
+                    f"⏱️ *Duration:* {session_obj.hours_taken} Hours\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📌 *Topic Covered Today:*\n"
+                    f"{topic_text}"
+                )
+                try:
+                    r_send = requests.post(
+                        f"{BAILEYS_URL}/send-message",
+                        json={'target': target_jid, 'text': broadcast_msg},
+                        timeout=15,
+                    )
+                    if r_send.ok and r_send.json().get('success'):
+                        whatsapp_result = {
+                            'sent': True,
+                            'group_id': target_jid,
+                            'group_name': group_label,
+                        }
+                        try:
+                            WhatsAppBroadcastLog.objects.create(
+                                batch_id=str(batch.id),
+                                batch_name=batch.name,
+                                trainer_name=session_obj.trainer_name or 'Trainer',
+                                group_name=group_label,
+                                message_preview=broadcast_msg,
+                                status='delivered',
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        err_text = r_send.text if not r_send.ok else r_send.json().get('error', 'Send failed')
+                        whatsapp_result = {'sent': False, 'error': err_text, 'group_name': group_label}
+                except Exception as e:
+                    whatsapp_result = {'sent': False, 'error': str(e), 'group_name': group_label}
+            else:
+                whatsapp_result = {
+                    'sent': False,
+                    'error': f'WhatsApp group not found for "{group_label}". Group must be linked or created.',
+                    'group_name': group_label,
+                }
+
+        return Response({
+            'success': True,
+            'session': serializer.data,
+            'whatsapp_broadcast': whatsapp_result,
+        }, status=status.HTTP_201_CREATED)
 
 
 class TrainerAttendanceViewSet(viewsets.ModelViewSet):
@@ -888,6 +1037,67 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
         return Response({'success': False, 'error': 'No active Check-In found for today'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def sync_trainer_balance(trainer_id_val):
+    if not trainer_id_val:
+        return None
+    trainer = (
+        UserProfile.objects.filter(id=str(trainer_id_val)).first()
+        or UserProfile.objects.filter(username=str(trainer_id_val)).first()
+        or UserProfile.objects.filter(email=str(trainer_id_val)).first()
+    )
+    if not trainer:
+        return None
+
+    balance, _ = TrainerLeaveBalance.objects.get_or_create(
+        trainer=trainer,
+        defaults={
+            'trainer_name': trainer.name,
+            'casual_sick_quota': 12,
+            'casual_sick_used': 0,
+            'optional_holiday_quota': 5,
+            'optional_holiday_used': 0,
+            'mandatory_holiday_count': 5,
+        }
+    )
+
+    from datetime import datetime
+    approved_leaves = Leave.objects.filter(
+        Q(trainer_id=str(trainer.id)) | Q(trainer=trainer),
+        status='approved'
+    )
+
+    casual_days = 0
+    sick_days = 0
+    emergency_days = 0
+    optional_days = 0
+
+    for l in approved_leaves:
+        days = 1
+        try:
+            if l.start_date and l.end_date:
+                s = datetime.strptime(str(l.start_date).strip(), '%Y-%m-%d')
+                e = datetime.strptime(str(l.end_date).strip(), '%Y-%m-%d')
+                days = max(1, (e - s).days + 1)
+        except Exception:
+            days = 1
+
+        if l.leave_type == 'optional_holiday':
+            optional_days += days
+        elif l.leave_type == 'casual':
+            casual_days += days
+        elif l.leave_type == 'sick':
+            sick_days += days
+        elif l.leave_type == 'emergency':
+            emergency_days += days
+
+    total_cs_used = casual_days + sick_days + emergency_days
+    balance.casual_sick_used = total_cs_used
+    balance.optional_holiday_used = optional_days
+    balance.trainer_name = trainer.name
+    balance.save()
+    return balance
+
+
 class LeaveViewSet(viewsets.ModelViewSet):
     queryset = Leave.objects.all().order_by('-created_at')
     serializer_class = LeaveSerializer
@@ -900,9 +1110,9 @@ class LeaveViewSet(viewsets.ModelViewSet):
             trainer = None
             if trainer_id:
                 trainer = (
-                    UserProfile.objects.filter(id=trainer_id).first()
-                    or UserProfile.objects.filter(email=trainer_id).first()
-                    or UserProfile.objects.filter(username=trainer_id).first()
+                    UserProfile.objects.filter(id=str(trainer_id)).first()
+                    or UserProfile.objects.filter(email=str(trainer_id)).first()
+                    or UserProfile.objects.filter(username=str(trainer_id)).first()
                 )
 
             if not trainer:
@@ -917,26 +1127,20 @@ class LeaveViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             leave = serializer.save()
 
-            # If created directly as approved (e.g. Admin direct deduction), update balance
-            if leave.trainer_id and leave.status == 'approved':
-                try:
-                    balance, _ = TrainerLeaveBalance.objects.get_or_create(
-                        trainer_id=leave.trainer_id,
-                        defaults={
-                            'trainer_name': leave.trainer_name or (trainer.name if trainer else 'Trainer'),
-                            'casual_sick_quota': 12,
-                            'casual_sick_used': 0,
-                            'optional_holiday_quota': 5,
-                            'optional_holiday_used': 0
-                        }
-                    )
-                    if leave.leave_type == 'optional_holiday':
-                        balance.optional_holiday_used = max(0, balance.optional_holiday_used + 1)
-                    else:
-                        balance.casual_sick_used = max(0, balance.casual_sick_used + 1)
-                    balance.save()
-                except Exception:
-                    pass
+            # If created directly as approved (e.g. Admin direct deduction), update balance and log audit
+            if trainer and leave.status == 'approved':
+                sync_trainer_balance(trainer.id)
+                admin_name = request.data.get('admin_name', 'Admin')
+                LeaveAuditLog.objects.create(
+                    trainer=trainer,
+                    trainer_name=trainer.name,
+                    admin_name=admin_name,
+                    leave_type=leave.leave_type,
+                    old_balance=0,
+                    new_balance=1,
+                    adjustment=-1,
+                    reason=leave.reason or f'Leave ({leave.leave_type}) recorded directly'
+                )
 
             return Response({'success': True, 'leave': serializer.data, 'message': 'Leave processed successfully!'}, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -947,7 +1151,7 @@ class LeaveViewSet(viewsets.ModelViewSet):
         date       = request.query_params.get('date')
         queryset   = self.get_queryset()
         if trainer_id:
-            queryset = queryset.filter(trainer_id=trainer_id)
+            queryset = queryset.filter(Q(trainer_id=trainer_id) | Q(trainer__id=trainer_id))
         if date:
             queryset = queryset.filter(start_date__lte=date, end_date__gte=date)
         serializer = self.get_serializer(queryset, many=True)
@@ -965,26 +1169,14 @@ class LeaveViewSet(viewsets.ModelViewSet):
         if not leave:
             return Response({'success': False, 'error': 'Leave not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        old_status = leave.status
         leave.status = new_status
         leave.save()
 
-        # Update leave balance if approved
-        if leave.trainer_id and new_status == 'approved':
-            try:
-                balance, _ = TrainerLeaveBalance.objects.get_or_create(
-                    trainer_id=leave.trainer_id,
-                    defaults={
-                        'trainer_name': leave.trainer_name or 'Trainer',
-                        'casual_sick_quota': 12,
-                        'casual_sick_used': 0,
-                        'optional_holiday_quota': 5,
-                        'optional_holiday_used': 0
-                    }
-                )
-                balance.casual_sick_used = max(0, balance.casual_sick_used + 1)
-                balance.save()
-            except Exception:
-                pass  # Don't fail the approval just because balance update failed
+        # Update leave balance if status changed
+        tid = leave.trainer_id or (str(leave.trainer.id) if leave.trainer else None)
+        if tid:
+            sync_trainer_balance(tid)
 
         serializer = self.get_serializer(leave)
         return Response({'success': True, 'leave': serializer.data, 'message': f'Leave {new_status} successfully.'})
@@ -993,48 +1185,152 @@ class LeaveViewSet(viewsets.ModelViewSet):
         """Handle PUT as well"""
         return self.partial_update(request, *args, **kwargs)
 
+    def destroy(self, request, *args, **kwargs):
+        """Handle DELETE — restore trainer balance when leave is deleted"""
+        leave = self.get_object()
+        tid = leave.trainer_id or (str(leave.trainer.id) if leave.trainer else None)
+        response = super().destroy(request, *args, **kwargs)
+        if tid:
+            sync_trainer_balance(tid)
+        return response
+
     @action(detail=False, methods=['get', 'post'], url_path='adjust')
     def adjust(self, request):
-        """GET: return all trainer leave balances. POST: adjust a trainer's quota."""
+        """GET: return all trainer leave balances. POST: adjust a trainer's quota or balance."""
         if request.method == 'GET':
-            balances = TrainerLeaveBalance.objects.select_related().all()
+            specific_trainer_id = request.query_params.get('trainer_id')
+            if specific_trainer_id:
+                sync_trainer_balance(specific_trainer_id)
+                t_obj = UserProfile.objects.filter(id=specific_trainer_id).first() or UserProfile.objects.filter(username=specific_trainer_id).first()
+                if t_obj:
+                    bal, _ = TrainerLeaveBalance.objects.get_or_create(
+                        trainer=t_obj,
+                        defaults={'trainer_name': t_obj.name, 'casual_sick_quota': 12, 'casual_sick_used': 0, 'optional_holiday_quota': 5, 'optional_holiday_used': 0}
+                    )
+                    ser = TrainerLeaveBalanceSerializer(bal)
+                    return Response({'success': True, 'balance': ser.data, 'balances': [ser.data]})
+
+            # Sync all trainers so approved leaves are accurately deducted
+            trainers = UserProfile.objects.filter(role='trainer')
+            for t in trainers:
+                sync_trainer_balance(t.id)
+
+            balances = TrainerLeaveBalance.objects.select_related('trainer').all()
             serializer = TrainerLeaveBalanceSerializer(balances, many=True)
-            return Response({'success': True, 'balances': serializer.data})
+            audit_logs = LeaveAuditLog.objects.all().order_by('-created_at')[:100]
+            audit_serializer = LeaveAuditLogSerializer(audit_logs, many=True)
+            return Response({'success': True, 'balances': serializer.data, 'auditLogs': audit_serializer.data})
 
-        # POST — adjust quota
-        trainer_id  = request.data.get('trainer_id')
-        leave_type  = request.data.get('leave_type', 'casual_sick')
-        new_quota   = request.data.get('new_quota')
-        reason      = request.data.get('reason', '')
+        # POST — adjust quota or deduct leave
+        trainer_id = request.data.get('trainer_id')
+        leave_type = request.data.get('leave_type', 'casual_sick')
+        reason = request.data.get('reason', '')
+        admin_name = request.data.get('admin_name', 'Director (Admin)')
+        adjustment_type = request.data.get('adjustment_type', 'quota') # 'quota', 'balance', 'deduct'
 
-        if not trainer_id or new_quota is None:
-            return Response({'success': False, 'error': 'trainer_id and new_quota are required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not trainer_id:
+            return Response({'success': False, 'error': 'trainer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        trainer_obj = UserProfile.objects.filter(id=trainer_id).first()
-        trainer_name = trainer_obj.name if trainer_obj else 'Trainer'
+        trainer_obj = (
+            UserProfile.objects.filter(id=str(trainer_id)).first()
+            or UserProfile.objects.filter(username=str(trainer_id)).first()
+            or UserProfile.objects.filter(email=str(trainer_id)).first()
+        )
+        if not trainer_obj:
+            return Response({'success': False, 'error': 'Trainer not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        sync_trainer_balance(trainer_obj.id)
         balance, _ = TrainerLeaveBalance.objects.get_or_create(
-            trainer_id=trainer_id,
+            trainer=trainer_obj,
             defaults={
-                'trainer_name': trainer_name,
+                'trainer_name': trainer_obj.name,
                 'casual_sick_quota': 12,
                 'casual_sick_used': 0,
                 'optional_holiday_quota': 5,
-                'optional_holiday_used': 0
+                'optional_holiday_used': 0,
+                'mandatory_holiday_count': 5,
             }
         )
-        balance.casual_sick_quota = int(new_quota)
+
+        # Handle direct deduction
+        deduct_days = request.data.get('deduct_days')
+        if adjustment_type == 'deduct' or deduct_days is not None:
+            days_to_deduct = int(deduct_days or 1)
+            today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
+            mapped_type = 'optional_holiday' if leave_type == 'optional_holiday' else ('sick' if leave_type == 'sick' else 'casual')
+            Leave.objects.create(
+                trainer=trainer_obj,
+                trainer_name=trainer_obj.name,
+                leave_type=mapped_type,
+                start_date=today_str,
+                end_date=today_str,
+                reason=reason or f'Direct deduction by {admin_name} ({days_to_deduct} day)',
+                status='approved'
+            )
+            sync_trainer_balance(trainer_obj.id)
+            balance.refresh_from_db()
+            LeaveAuditLog.objects.create(
+                trainer=trainer_obj,
+                trainer_name=trainer_obj.name,
+                admin_name=admin_name,
+                leave_type=mapped_type,
+                old_balance=0,
+                new_balance=0,
+                adjustment=-days_to_deduct,
+                reason=reason or f'Admin deducted {days_to_deduct} day of {mapped_type} leave'
+            )
+            serializer = TrainerLeaveBalanceSerializer(balance)
+            return Response({'success': True, 'balance': serializer.data, 'message': f'{days_to_deduct} day of {mapped_type} leave deducted successfully!'})
+
+        # Find new quota value from various client field names
+        raw_val = (
+            request.data.get('new_quota')
+            if request.data.get('new_quota') is not None
+            else request.data.get('new_balance')
+            if request.data.get('new_balance') is not None
+            else request.data.get('new_casual_sick_quota')
+            if request.data.get('new_casual_sick_quota') is not None
+            else request.data.get('new_optional_quota')
+        )
+
+        if raw_val is None:
+            return Response({'success': False, 'error': 'new_quota or new_balance value is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_val = int(raw_val)
+
+        if leave_type == 'optional_holiday' or request.data.get('new_optional_quota') is not None:
+            old_val = balance.optional_holiday_quota
+            if adjustment_type == 'balance':
+                # User specifies remaining balance; adjust quota = used + remaining
+                balance.optional_holiday_quota = max(0, balance.optional_holiday_used + new_val)
+            else:
+                balance.optional_holiday_quota = max(0, new_val)
+            new_val = balance.optional_holiday_quota
+        else: # casual_sick, casual, sick
+            old_val = balance.casual_sick_quota
+            if adjustment_type == 'balance':
+                balance.casual_sick_quota = max(0, balance.casual_sick_used + new_val)
+            else:
+                balance.casual_sick_quota = max(0, new_val)
+            new_val = balance.casual_sick_quota
+
         balance.save()
 
+        # Save immutable audit log
         LeaveAuditLog.objects.create(
-            leave=None,
-            action='quota_adjusted',
-            performed_by='Admin',
-            notes=f'Quota adjusted to {new_quota}. Reason: {reason}'
-        ) if False else None  # skip if leave is required
+            trainer=trainer_obj,
+            trainer_name=trainer_obj.name,
+            admin_name=admin_name,
+            leave_type=leave_type,
+            old_balance=old_val,
+            new_balance=new_val,
+            adjustment=new_val - old_val,
+            reason=reason or f'Administrative quota override by {admin_name}'
+        )
 
         serializer = TrainerLeaveBalanceSerializer(balance)
-        return Response({'success': True, 'balance': serializer.data, 'message': 'Quota updated successfully.'})
+        return Response({'success': True, 'balance': serializer.data, 'message': 'Leave balance updated successfully!'})
+
 
 
 class TaskLogViewSet(viewsets.ModelViewSet):
@@ -1388,6 +1684,43 @@ def whatsapp_bot_gateway(request):
         return Response({'success': False, 'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(['POST'])
+def whatsapp_sync_invite_link_view(request):
+    """
+    Fetches the invite link for an existing WhatsApp group from the Baileys bot
+    and saves it to the Batch record in the database.
+    POST body: { group_id: str, batch_id: str }
+    """
+    import requests as _req
+    group_id = request.data.get('group_id') or ''
+    batch_id = request.data.get('batch_id') or ''
+
+    if not group_id:
+        return Response({'success': False, 'error': 'group_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    BAILEYS_URL = 'http://127.0.0.1:5002'
+    try:
+        # Ask Baileys for the group invite code
+        r = _req.post(
+            f"{BAILEYS_URL}/group-invite-link",
+            json={'groupId': group_id},
+            timeout=15
+        )
+        if r.ok:
+            resp = r.json()
+            invite_link = resp.get('inviteLink') or resp.get('link') or ''
+            if invite_link and batch_id:
+                batch = Batch.objects.filter(id=batch_id).first()
+                if batch:
+                    batch.whatsapp_group_link = invite_link
+                    batch.save(update_fields=['whatsapp_group_link'])
+            return Response({'success': True, 'inviteLink': invite_link})
+        return Response({'success': False, 'error': f'Baileys returned HTTP {r.status_code}'}, status=status.HTTP_502_BAD_GATEWAY)
+    except _req.exceptions.ConnectionError:
+        return Response({'success': False, 'error': 'WhatsApp Bot (Baileys) is not running. Try pasting the link manually.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception as e:
+        return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['GET'])
 @csrf_exempt
 def external_trainer_meetings_view(request):
@@ -1491,9 +1824,53 @@ class HolidayViewSet(viewsets.ModelViewSet):
     serializer_class = HolidaySerializer
 
     def list(self, request, *args, **kwargs):
+        # Auto-seed standard 2026 calendar holidays if none exist in DB
+        if Holiday.objects.count() == 0:
+            default_holidays = [
+                {'name': 'Republic Day', 'date': '2026-01-26', 'type': 'mandatory'},
+                {'name': 'Labour Day', 'date': '2026-05-01', 'type': 'mandatory'},
+                {'name': 'Independence Day', 'date': '2026-08-15', 'type': 'mandatory'},
+                {'name': 'Gandhi Jayanti', 'date': '2026-10-02', 'type': 'mandatory'},
+                {'name': 'Karnataka Rajyotsava', 'date': '2026-11-01', 'type': 'mandatory'},
+                {'name': 'Makar Sankranti', 'date': '2026-01-14', 'type': 'optional'},
+                {'name': 'Holi Festival', 'date': '2026-03-04', 'type': 'optional'},
+                {'name': 'Raksha Bandhan', 'date': '2026-08-28', 'type': 'optional'},
+                {'name': 'Diwali Deepawali', 'date': '2026-10-12', 'type': 'optional'},
+                {'name': 'Christmas Day', 'date': '2026-12-25', 'type': 'optional'},
+            ]
+            for h in default_holidays:
+                Holiday.objects.create(id=str(uuid.uuid4()), name=h['name'], date=h['date'], type=h['type'])
+
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
-        return Response({'success': True, 'holidays': serializer.data})
+        mandatory = [h for h in serializer.data if h.get('type') == 'mandatory']
+        optional = [h for h in serializer.data if h.get('type') == 'optional']
+
+        return Response({
+            'success': True,
+            'holidays': serializer.data,
+            'holidayConfig': {
+                'mandatory_holidays': mandatory,
+                'optional_holidays': optional,
+                'week_off_pattern': 'sunday',
+            }
+        })
+
+    def create(self, request, *args, **kwargs):
+        # Handle batch update from Admin Holidays Page
+        data = request.data
+        if 'mandatory_holidays' in data or 'optional_holidays' in data:
+            Holiday.objects.all().delete()
+            for h in data.get('mandatory_holidays', []):
+                if h.get('name') and h.get('date'):
+                    Holiday.objects.create(id=str(uuid.uuid4()), name=h['name'], date=h['date'], type='mandatory')
+            for h in data.get('optional_holidays', []):
+                if h.get('name') and h.get('date'):
+                    Holiday.objects.create(id=str(uuid.uuid4()), name=h['name'], date=h['date'], type='optional')
+            return Response({'success': True, 'message': 'Holiday calendar updated successfully!'})
+
+        return super().create(request, *args, **kwargs)
+
 
 
 @api_view(['GET'])
