@@ -173,6 +173,7 @@ let activeGeneration = 0;
 let isStarting = false;
 let reconnectTimer = null;
 let reconnectAttempts = 0;
+let qrRetryCount = 0;         // counts fresh-QR reconnects after 401/408 — stops looping
 let userRequestedLogout = false; // only true when user calls /disconnect
 let pendingRestartReason = null;
 
@@ -322,6 +323,7 @@ async function startWhatsApp(triggerReason = 'boot') {
         latestQrDataUrl = null;
         pairingCode = null;
         reconnectAttempts = 0; // reset backoff counter on successful connect
+        qrRetryCount = 0;      // reset QR retry counter
         pendingRestartReason = null;
 
         botStatus.isConnected = true;
@@ -360,16 +362,45 @@ async function startWhatsApp(triggerReason = 'boot') {
           return;
         }
 
-        // ── WhatsApp revoked our session (logged out from phone) ──
-        // Still reconnect — this will show a QR to re-link
+        // ── WhatsApp revoked our session (401 / logged out) ──
+        // Delete corrupt/invalid session files so next connect shows a fresh QR.
+        // Only reconnect ONCE to generate the QR — do not loop.
         if (is401) {
-          console.warn(`🔑 [conn-manager:gen#${currentGen}] Session revoked by WhatsApp (401). Will show QR for re-linking.`);
+          qrRetryCount++;
+          console.warn(`🔑 [conn-manager:gen#${currentGen}] Session revoked/invalid (401). QR retry #${qrRetryCount}.`);
           botStatus.status = 'scan_required';
           latestQrDataUrl = null;
           latestQrString = null;
           pairingCode = null;
-          // Reconnect so Baileys generates a fresh QR — do NOT stop the loop
-          scheduleRestart(3000, '401-relink');
+
+          // First 401: delete stale session so Baileys generates QR instead of looping
+          if (qrRetryCount === 1) {
+            try {
+              if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+              if (fs.existsSync(BACKUP_CREDS_FILE)) fs.unlinkSync(BACKUP_CREDS_FILE);
+              fs.mkdirSync(AUTH_DIR, { recursive: true });
+              console.log(`🗑️ [conn-manager:gen#${currentGen}] Stale session cleared. Reconnecting to show QR.`);
+            } catch (e) {}
+            scheduleRestart(3000, '401-fresh-qr');
+          } else if (qrRetryCount <= 3) {
+            // Allow a couple more retries in case of transient WhatsApp server blip
+            scheduleRestart(10000, '401-retry');
+          } else {
+            // Too many 401s — session is truly gone, wait for manual QR scan
+            console.error(`❌ [conn-manager:gen#${currentGen}] Too many 401s (${qrRetryCount}). Waiting for manual QR scan from UI.`);
+            botStatus.status = 'scan_required';
+            // Stop the loop — UI will call /connect when user scans QR
+          }
+          return;
+        }
+
+        // ── QR scan timed out (408) — reconnect to show fresh QR ──
+        if (statusCode === 408) {
+          console.warn(`⏱️ [conn-manager:gen#${currentGen}] QR scan timed out (408). Restarting to show fresh QR...`);
+          botStatus.status = 'scan_required';
+          latestQrDataUrl = null;
+          latestQrString = null;
+          scheduleRestart(3000, '408-qr-timeout');
           return;
         }
 
@@ -1210,6 +1241,7 @@ const server = http.createServer(async (req, res) => {
     console.log('📲 Manual /connect requested.');
     userRequestedLogout = false; // allow reconnects
     reconnectAttempts = 0;
+    qrRetryCount = 0;
     botStatus.status = 'connecting';
     startWhatsApp('manual-connect');
     res.writeHead(200, { 'Content-Type': 'application/json' });
