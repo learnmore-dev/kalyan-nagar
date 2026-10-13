@@ -591,6 +591,11 @@ export default function AdminWhatsAppPage() {
                       alt="Official WhatsApp Web QR Code"
                       className="h-48 w-48 object-contain rounded-xl"
                     />
+                  ) : botStatus?.status === 'idle' || !botStatus ? (
+                    <div className="h-48 w-48 rounded-xl bg-slate-50 flex flex-col items-center justify-center p-4 text-slate-400 space-y-2">
+                      <MessageSquare className="h-10 w-10 text-slate-300" />
+                      <span className="text-xs font-semibold text-slate-500">Click "Connect WhatsApp" to start</span>
+                    </div>
                   ) : (
                     <div className="h-48 w-48 rounded-xl bg-slate-50 flex flex-col items-center justify-center p-4 text-slate-400 space-y-2">
                       <RefreshCw className="h-8 w-8 animate-spin text-emerald-600" />

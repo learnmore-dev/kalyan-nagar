@@ -68,6 +68,7 @@ def send_attendance_whatsapp(message):
             json={
                 'target': target,
                 'text': message,
+                'queueIfOffline': True,
             },
             timeout=10,
         )
@@ -857,7 +858,12 @@ class WorkSessionViewSet(viewsets.ModelViewSet):
                 try:
                     r_send = requests.post(
                         f"{BAILEYS_URL}/send-message",
-                        json={'target': target_jid, 'text': broadcast_msg},
+                        json={
+                            'target': target_jid,
+                            'text': broadcast_msg,
+                            'idempotencyKey': f"att_{batch.id}_{session_obj.id}",
+                            'queueIfOffline': True,
+                        },
                         timeout=15,
                     )
                     if r_send.ok and r_send.json().get('success'):
@@ -1522,30 +1528,33 @@ def whatsapp_bot_gateway(request):
                 return Response({'success': False, 'error': str(e)})
 
         if action == 'refresh_qr':
+            # Restart the socket so Baileys regenerates a fresh QR — do NOT delete session files
             try:
-                r = requests.get(f"{BAILEYS_URL}/reset-auth", timeout=5)
-                return Response(r.json() if r.ok else {'success': True, 'message': 'Reset requested'})
+                r = requests.post(f"{BAILEYS_URL}/connect", timeout=10)
+                return Response(r.json() if r.ok else {'success': True, 'message': 'QR refresh requested'})
             except Exception as e:
                 return Response({'success': False, 'error': str(e)})
 
         if action == 'connect':
             try:
-                r = requests.get(f"{BAILEYS_URL}/status", timeout=3)
+                r = requests.post(f"{BAILEYS_URL}/connect", timeout=10)
                 if r.ok:
                     data = r.json()
-                    return Response({'success': True, 'message': 'WhatsApp Bot is running', 'bot': data.get('bot', {})})
+                    return Response({'success': True, 'message': data.get('message', 'Connecting to WhatsApp...'), 'bot': data.get('bot', {})})
+                return Response({'success': False, 'error': 'Failed to connect WhatsApp Bot'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             except requests.exceptions.ConnectionError:
                 return Response({'success': False, 'error': 'WhatsApp Bot (Baileys) is not running. Run: npm run bot'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             except Exception as e:
                 return Response({'success': False, 'error': str(e)})
-            return Response({'success': True, 'message': 'WhatsApp Bot session active'})
 
         if action == 'disconnect':
             try:
-                r = requests.get(f"{BAILEYS_URL}/reset-auth", timeout=5)
-                return Response({'success': True, 'message': 'WhatsApp Bot Disconnected successfully.'})
+                r = requests.post(f"{BAILEYS_URL}/disconnect", timeout=5)
+                if r.ok:
+                    return Response({'success': True, 'message': 'WhatsApp Bot Disconnected successfully.'})
             except Exception as e:
-                return Response({'success': True, 'message': 'WhatsApp Bot Disconnected.'})
+                pass
+            return Response({'success': True, 'message': 'WhatsApp Bot Disconnected.'})
 
         if action == 'pair_code':
             phone = request.data.get('phone')

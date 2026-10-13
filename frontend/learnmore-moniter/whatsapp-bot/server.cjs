@@ -15,88 +15,265 @@ const fs = require('fs');
 const PORT = process.env.PORT || 5002;
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 const BACKUP_CREDS_FILE = path.join(__dirname, 'creds_backup.json');
+const GROUPS_CACHE_FILE = path.join(__dirname, 'groups_cache.json');
+const PENDING_QUEUE_FILE = path.join(__dirname, 'pending_messages.json');
+const SENT_CACHE_FILE = path.join(__dirname, 'sent_messages_cache.json');
 
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
-// Auto-restore creds from persistent backup if creds.json was deleted or corrupted
-try {
-  const primaryCreds = path.join(AUTH_DIR, 'creds.json');
-  if (
-    (!fs.existsSync(primaryCreds) || fs.statSync(primaryCreds).size < 20) &&
-    fs.existsSync(BACKUP_CREDS_FILE) &&
-    fs.statSync(BACKUP_CREDS_FILE).size > 50
-  ) {
-    fs.copyFileSync(BACKUP_CREDS_FILE, primaryCreds);
-    console.log('🔄 Restored WhatsApp session from persistent creds_backup.json!');
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ATOMIC & VALIDATED CREDENTIAL BACKUP / RESTORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function saveCredsBackupAtomic() {
+  try {
+    const primaryCreds = path.join(AUTH_DIR, 'creds.json');
+    if (!fs.existsSync(primaryCreds) || fs.statSync(primaryCreds).size < 50) return;
+    const raw = fs.readFileSync(primaryCreds, 'utf8');
+    const parsed = JSON.parse(raw);
+    // Only back up if credentials represent a genuine registered account
+    if (parsed && parsed.registered && parsed.me && parsed.me.id) {
+      const tmpFile = BACKUP_CREDS_FILE + '.tmp';
+      fs.writeFileSync(tmpFile, raw, 'utf8');
+      fs.renameSync(tmpFile, BACKUP_CREDS_FILE);
+      console.log('💾 [backup] Verified persistent backup of WhatsApp session saved.');
+    }
+  } catch (e) {
+    // Non-critical background save, ignore parse or file errors
   }
-} catch (e) {}
+}
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. DURABLE ATTENDANCE & MESSAGE RETRY QUEUE WITH IDEMPOTENCY
+// ─────────────────────────────────────────────────────────────────────────────
+
+let sentMessagesCache = new Set();
+
+function loadSentMessagesCache() {
+  try {
+    if (fs.existsSync(SENT_CACHE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SENT_CACHE_FILE, 'utf8'));
+      if (Array.isArray(data)) {
+        sentMessagesCache = new Set(data.slice(-2000)); // keep last 2000 IDs
+      }
+    }
+  } catch (e) {}
+}
+
+function markMessageSent(idempotencyKey) {
+  if (!idempotencyKey) return;
+  sentMessagesCache.add(idempotencyKey);
+  try {
+    const arr = Array.from(sentMessagesCache).slice(-2000);
+    fs.writeFileSync(SENT_CACHE_FILE, JSON.stringify(arr), 'utf8');
+  } catch (e) {}
+}
+
+loadSentMessagesCache();
+
+function loadPendingQueue() {
+  try {
+    if (fs.existsSync(PENDING_QUEUE_FILE)) {
+      const data = JSON.parse(fs.readFileSync(PENDING_QUEUE_FILE, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {}
+  return [];
+}
+
+function savePendingQueue(queue) {
+  try {
+    fs.writeFileSync(PENDING_QUEUE_FILE, JSON.stringify(queue, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+function enqueuePendingMessage(msgData) {
+  const queue = loadPendingQueue();
+  const id = msgData.idempotencyKey || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  // Check if already in queue or already sent
+  if (sentMessagesCache.has(id) || queue.some((m) => m.idempotencyKey === id)) {
+    return { enqueued: false, idempotencyKey: id, alreadyExists: true };
+  }
+  queue.push({
+    ...msgData,
+    idempotencyKey: id,
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+  });
+  savePendingQueue(queue);
+  console.log(`📥 [queue] Enqueued message ${id} for target ${msgData.target} (queue size: ${queue.length})`);
+  return { enqueued: true, idempotencyKey: id };
+}
+
+let isProcessingQueue = false;
+
+async function processPendingQueue() {
+  if (isProcessingQueue || !botStatus.isConnected || !sock) return;
+  const queue = loadPendingQueue();
+  if (queue.length === 0) return;
+
+  isProcessingQueue = true;
+  console.log(`⚡ [queue] Processing ${queue.length} pending message(s)...`);
+
+  const remaining = [];
+  for (const item of queue) {
+    if (!botStatus.isConnected || !sock) {
+      remaining.push(item);
+      continue;
+    }
+
+    if (item.idempotencyKey && sentMessagesCache.has(item.idempotencyKey)) {
+      // Already sent
+      continue;
+    }
+
+    try {
+      let jid = item.target;
+      if (!jid.includes('@')) {
+        const cleanNum = jid.replace(/[^0-9]/g, '');
+        jid = cleanNum.length >= 10 ? `${cleanNum.startsWith('91') ? cleanNum : '91' + cleanNum}@s.whatsapp.net` : `${cleanNum}@s.whatsapp.net`;
+      }
+
+      await sock.sendMessage(jid, { text: item.text });
+      markMessageSent(item.idempotencyKey);
+      console.log(`✅ [queue] Successfully delivered pending message ${item.idempotencyKey} to ${jid}`);
+      await new Promise((r) => setTimeout(r, 1200)); // Rate limiting between retries
+    } catch (err) {
+      item.attempts = (item.attempts || 0) + 1;
+      item.lastError = err.message;
+      console.warn(`⚠️ [queue] Retry failed for ${item.idempotencyKey} (attempt ${item.attempts}):`, err.message);
+      if (item.attempts < 5) {
+        remaining.push(item);
+      } else {
+        console.error(`❌ [queue] Dropping message ${item.idempotencyKey} after 5 failed attempts.`);
+      }
+    }
+  }
+
+  savePendingQueue(remaining);
+  isProcessingQueue = false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. PERMANENT CONNECTION MANAGER
+//
+// Design goals:
+//   • Auto-connect on boot if saved credentials exist on disk
+//   • NEVER stop reconnecting unless the user explicitly calls /disconnect
+//   • Survive network drops, 515 restarts, conflicts — always come back
+//   • Only a deliberate /disconnect call stops the reconnect loop
+// ─────────────────────────────────────────────────────────────────────────────
 
 let sock = null;
+let activeGeneration = 0;
 let isStarting = false;
 let reconnectTimer = null;
+let reconnectAttempts = 0;
+let userRequestedLogout = false; // only true when user calls /disconnect
+let pendingRestartReason = null;
+
 let latestQrString = null;
 let latestQrDataUrl = null;
 let pairingCode = null;
-let userRequestedLogout = false;
 
 let botStatus = {
   isConnected: false,
   phoneNumber: null,
   userName: null,
-  status: 'initializing',
+  status: 'idle',
   lastConnectedAt: null,
 };
 
-function scheduleRestart(delayMs = 2000) {
+// Check if saved session credentials exist on disk
+function hasSavedSession() {
+  try {
+    const credsFile = path.join(AUTH_DIR, 'creds.json');
+    if (!fs.existsSync(credsFile)) return false;
+    const raw = fs.readFileSync(credsFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    return !!(parsed && parsed.me && parsed.me.id);
+  } catch (e) {
+    return false;
+  }
+}
+
+function scheduleRestart(delayMs = 3000, reason = 'reconnect') {
+  if (userRequestedLogout) {
+    console.log(`⛔ [reconnect] Skipping reconnect — user requested disconnect.`);
+    return;
+  }
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+
+  // Exponential backoff: 3s → 5s → 8s → 12s → 18s → 27s → 40s → 60s (cap), then stays at 60s
+  reconnectAttempts++;
+  const base = Math.min(60000, Math.round(3000 * Math.pow(1.5, Math.min(reconnectAttempts - 1, 8))));
+  const jitter = Math.floor(Math.random() * 2000);
+  const finalDelay = base + jitter;
+
+  console.log(`🔄 [reconnect] Attempt #${reconnectAttempts} in ${Math.round(finalDelay / 1000)}s | Reason: ${reason}`);
+
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    startWhatsApp();
-  }, delayMs);
+    if (!userRequestedLogout) startWhatsApp(reason);
+  }, finalDelay);
 }
 
-// Start or reconnect WhatsApp Baileys Socket
-async function startWhatsApp() {
-  if (isStarting) {
-    console.log('⚡ Connection start already in progress, skipping duplicate call.');
+async function startWhatsApp(triggerReason = 'boot') {
+  if (userRequestedLogout) {
+    console.log(`⛔ [conn-manager] Start blocked — user requested logout.`);
     return;
   }
+  if (isStarting) {
+    console.log(`⚡ [conn-manager] Startup in progress; queued: ${triggerReason}`);
+    pendingRestartReason = triggerReason;
+    return;
+  }
+
   isStarting = true;
+  const currentGen = ++activeGeneration;
+  console.log(`\n🚀 [conn-manager:gen#${currentGen}] Starting WhatsApp socket (reason: ${triggerReason})...`);
 
   try {
-    // Safely cleanup previous socket if existing
+    // Tear down old socket cleanly
     if (sock) {
-      try {
-        sock.ev.removeAllListeners();
-        sock.ws?.removeAllListeners?.();
-        sock.ws?.close();
-        sock.end();
-      } catch (e) {
-        // ignore
-      }
+      const oldSock = sock;
       sock = null;
+      try {
+        oldSock.ev.removeAllListeners();
+        oldSock.ws?.removeAllListeners?.();
+        oldSock.ws?.close();
+        oldSock.end?.();
+      } catch (e) {}
     }
 
     const authLogger = pino({ level: 'silent' });
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+
+    // Fetch latest Baileys version with 5s timeout
     let version = [2, 3000, 1015901307];
     try {
       const vRes = await Promise.race([
         fetchLatestBaileysVersion(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
       ]);
       if (vRes?.version) version = vRes.version;
     } catch (e) {
-      console.log('Using fallback Baileys version due to fast startup timeout.');
+      console.log('ℹ️ [conn-manager] Using bundled Baileys version (CDN timeout).');
     }
-    console.log(`Using Baileys version: ${version.join('.')}`);
 
-    sock = makeWASocket({
+    if (currentGen !== activeGeneration) {
+      console.log(`⚡ [conn-manager:gen#${currentGen}] Superseded, aborting.`);
+      return;
+    }
+
+    const newSock = makeWASocket({
       version,
       logger: authLogger,
       auth: {
@@ -108,126 +285,150 @@ async function startWhatsApp() {
       markOnlineOnConnect: true,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 25000,
+      keepAliveIntervalMs: 10000,   // ping every 10s — more aggressive, catches drops faster
       generateHighQualityLinkPreview: false,
-      retryRequestOptions: {
-        maxRetries: 5,
-        delayMs: 2000,
-      },
+      retryRequestOptions: { maxRetries: 5, delayMs: 2000 },
     });
 
-    sock.ev.on('creds.update', async () => {
+    sock = newSock;
+
+    newSock.ev.on('creds.update', async () => {
+      if (currentGen !== activeGeneration) return;
       await saveCreds();
-      // Keep persistent backup of valid creds
-      try {
-        const primaryCreds = path.join(AUTH_DIR, 'creds.json');
-        if (fs.existsSync(primaryCreds) && fs.statSync(primaryCreds).size > 50) {
-          fs.copyFileSync(primaryCreds, BACKUP_CREDS_FILE);
-        }
-      } catch (e) {}
+      saveCredsBackupAtomic();
     });
 
-    sock.ev.on('connection.update', async (update) => {
+    newSock.ev.on('connection.update', async (update) => {
+      if (currentGen !== activeGeneration) return;
+
       const { connection, lastDisconnect, qr } = update;
 
+      // ── QR Code ready for scanning ──
       if (qr) {
         latestQrString = qr;
         try {
           latestQrDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
         } catch (e) {
-          console.error('QR Render Error:', e);
+          console.error('QR render error:', e.message);
         }
         botStatus.status = 'scan_required';
         botStatus.isConnected = false;
-        console.log('⚡ New WhatsApp QR Code generated and ready for scan.');
+        console.log(`📱 [conn-manager:gen#${currentGen}] QR code ready. Scan with WhatsApp.`);
       }
 
+      // ── Successfully connected ──
       if (connection === 'open') {
         latestQrString = null;
         latestQrDataUrl = null;
         pairingCode = null;
-        userRequestedLogout = false;
+        reconnectAttempts = 0; // reset backoff counter on successful connect
+        pendingRestartReason = null;
+
         botStatus.isConnected = true;
         botStatus.status = 'connected';
-        botStatus.phoneNumber = sock?.user?.id ? sock.user.id.split(':')[0] : 'Linked';
-        botStatus.userName = sock?.user?.name || 'Admin';
+        botStatus.phoneNumber = newSock?.user?.id ? newSock.user.id.split(':')[0] : 'Linked';
+        botStatus.userName = newSock?.user?.name || 'Admin';
         botStatus.lastConnectedAt = new Date().toISOString();
-        console.log('✅ WhatsApp Connected Successfully! Logged in as:', sock?.user?.id);
 
-        // Save verified persistent backup of credentials
-        try {
-          const primaryCreds = path.join(AUTH_DIR, 'creds.json');
-          if (fs.existsSync(primaryCreds) && fs.statSync(primaryCreds).size > 50) {
-            fs.copyFileSync(primaryCreds, BACKUP_CREDS_FILE);
-            console.log('💾 Verified persistent backup of WhatsApp session saved.');
-          }
-        } catch (e) {}
+        console.log(`✅ [conn-manager:gen#${currentGen}] WhatsApp connected as ${newSock?.user?.id}`);
+        saveCredsBackupAtomic();
 
-        setTimeout(() => {
-          refreshGroups();
-        }, 4000);
+        setTimeout(() => processPendingQueue(), 2000);
+        setTimeout(() => refreshGroups(), 4000);
       }
 
+      // ── Connection dropped ──
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const errorMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || '');
-        const isExplicitLogout = userRequestedLogout;
         const is401 = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+        const isConflict = String(errorMsg).toLowerCase().includes('conflict');
+        const isRestartRequired = statusCode === DisconnectReason.restartRequired || statusCode === 515;
 
-        if (isExplicitLogout) {
-          botStatus.isConnected = false;
-          botStatus.status = 'scan_required';
+        botStatus.isConnected = false;
+        console.log(`⚠️ [conn-manager:gen#${currentGen}] Closed | code=${statusCode ?? 'unknown'} | ${errorMsg}`);
+
+        // ── User manually disconnected — stop everything ──
+        if (userRequestedLogout) {
+          botStatus.status = 'idle';
           latestQrDataUrl = null;
           latestQrString = null;
           pairingCode = null;
           userRequestedLogout = false;
-          console.log('🚪 User manually requested logout. Wiping auth session for fresh QR...');
-
-          try {
-            if (fs.existsSync(AUTH_DIR)) {
-              fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-            }
-            if (fs.existsSync(BACKUP_CREDS_FILE)) {
-              fs.unlinkSync(BACKUP_CREDS_FILE);
-            }
-          } catch (e) {
-            console.warn('Auth directory cleanup error:', e.message);
-          }
-          scheduleRestart(2000);
-        } else if (is401) {
-          // Status 401 can occur during token refresh or temporary socket drop.
-          // CRITICAL: NEVER delete AUTH_DIR automatically on unexpected 401!
-          console.warn(`⚠️ WhatsApp 401 notice: ${errorMsg}. Retaining session files and attempting reconnect in 5s...`);
-          botStatus.status = 'reconnecting';
-          scheduleRestart(5000);
-        } else {
-          // Temporary network failure, 515 restartRequired, PM2 restart, socket drop
-          botStatus.status = botStatus.isConnected ? 'reconnecting' : 'initializing';
-          const delayMs = statusCode === DisconnectReason.restartRequired ? 1500 : 3000;
-          console.log(`⚠️ WhatsApp connection closed | Status: ${statusCode || 'unknown'} | Reason: ${errorMsg}`);
-          console.log(`🔄 Reconnecting automatically using saved session in ${delayMs}ms...`);
-          scheduleRestart(delayMs);
+          console.log('🚪 [conn-manager] Disconnected by user. Stopped reconnect loop.');
+          // Auth files already deleted by the /disconnect endpoint handler
+          return;
         }
+
+        // ── WhatsApp revoked our session (logged out from phone) ──
+        // Still reconnect — this will show a QR to re-link
+        if (is401) {
+          console.warn(`🔑 [conn-manager:gen#${currentGen}] Session revoked by WhatsApp (401). Will show QR for re-linking.`);
+          botStatus.status = 'scan_required';
+          latestQrDataUrl = null;
+          latestQrString = null;
+          pairingCode = null;
+          // Reconnect so Baileys generates a fresh QR — do NOT stop the loop
+          scheduleRestart(3000, '401-relink');
+          return;
+        }
+
+        // ── Stream conflict: another WhatsApp Web session opened ──
+        // Wait longer before reconnecting to let the other session settle
+        if (isConflict) {
+          console.warn(`⚡ [conn-manager:gen#${currentGen}] Stream conflict detected. Waiting 8s then reconnecting...`);
+          botStatus.status = 'reconnecting';
+          scheduleRestart(8000, 'conflict');
+          return;
+        }
+
+        // ── Baileys internal restart signal (515) ──
+        if (isRestartRequired) {
+          botStatus.status = 'reconnecting';
+          console.log(`🔄 [conn-manager:gen#${currentGen}] 515 RestartRequired. Reconnecting in 1.5s...`);
+          scheduleRestart(1500, '515-restart');
+          return;
+        }
+
+        // ── All other disconnects: network drop, timeout, server-side kick, etc. ──
+        botStatus.status = 'reconnecting';
+        scheduleRestart(3000, 'network-drop');
       }
     });
 
-    sock.ev.on('messages.upsert', async () => {
-      // Message handler (if needed)
-    });
   } catch (err) {
-    console.error('Error starting WhatsApp socket:', err);
-    scheduleRestart(4000);
+    console.error(`❌ [conn-manager:gen#${currentGen}] Init error: ${err.message}`);
+    botStatus.status = 'reconnecting';
+    scheduleRestart(5000, 'init-error');
   } finally {
     isStarting = false;
+    if (pendingRestartReason && !userRequestedLogout) {
+      const q = pendingRestartReason;
+      pendingRestartReason = null;
+      console.log(`🔄 [conn-manager] Running queued restart: ${q}`);
+      scheduleRestart(1000, q);
+    }
   }
 }
+
+// ── Auto-connect on server boot if saved session exists ──
+if (hasSavedSession()) {
+  console.log('🔐 [boot] Saved WhatsApp session found — auto-connecting...');
+  botStatus.status = 'connecting';
+  startWhatsApp('boot-resume');
+} else {
+  console.log('ℹ️ [boot] No saved session. Use POST /connect or scan QR from UI to connect.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. GROUP SYNCHRONIZATION AND DISK CACHE
+// ─────────────────────────────────────────────────────────────────────────────
+
 let cachedGroups = [];
 let lastGroupsFetchTime = 0;
 let isFetchingGroups = false;
 let lastGroupFetchAttempt = 0;
-const GROUPS_CACHE_FILE = path.join(__dirname, 'groups_cache.json');
 
-// Try loading persisted groups cache on startup
 try {
   if (fs.existsSync(GROUPS_CACHE_FILE)) {
     cachedGroups = JSON.parse(fs.readFileSync(GROUPS_CACHE_FILE, 'utf8'));
@@ -277,7 +478,6 @@ async function refreshGroups(force = false) {
   } catch (err) {
     console.warn('⚠️ Group fetch notice:', err.message);
     if (String(err.message).includes('rate-overlimit')) {
-      // Cooldown for 60 seconds
       lastGroupFetchAttempt = Date.now() + 60000;
     }
   } finally {
@@ -285,24 +485,6 @@ async function refreshGroups(force = false) {
   }
   return cachedGroups;
 }
-
-// Start WhatsApp socket on boot
-startWhatsApp();
-
-// Periodically refresh groups in background every 3 minutes
-setInterval(() => {
-  if (botStatus.isConnected && sock) {
-    refreshGroups();
-  }
-}, 3 * 60 * 1000);
-
-// Process safety
-process.on('uncaughtException', (err) => {
-  console.error('Bot Uncaught Exception:', err?.message || err);
-});
-process.on('unhandledRejection', (err) => {
-  console.error('Bot Unhandled Rejection:', err?.message || err);
-});
 
 // Helper: Fetch Group Invite Code with Retry
 async function getGroupInviteLinkWithRetry(groupId, maxRetries = 3) {
@@ -318,7 +500,6 @@ async function getGroupInviteLinkWithRetry(groupId, maxRetries = 3) {
     } catch (err) {
       lastErr = err;
       console.log(`[invite-code] Attempt ${attempt} failed for ${groupId}:`, err.message);
-      // If error is not-authorized, retrying won't change WhatsApp server permissions
       if (String(err.message).includes('not-authorized') || String(err?.output?.statusCode) === '401') {
         break;
       }
@@ -327,8 +508,7 @@ async function getGroupInviteLinkWithRetry(groupId, maxRetries = 3) {
   return { link: null, error: lastErr?.message || 'Could not retrieve invite code' };
 }
 
-// Helper: If participants could not be added due to WhatsApp privacy settings (status != 200/201, e.g. 403),
-// send them a direct private WhatsApp message containing the group invite link!
+// Helper: If participants restricted by WhatsApp privacy, send them the invite link directly via PM
 async function notifyPrivacyRestrictedParticipants(groupId, groupName, updateResult, cachedInviteLink = null) {
   if (!sock) return [];
   const restrictedJids = [];
@@ -374,15 +554,30 @@ async function notifyPrivacyRestrictedParticipants(groupId, groupName, updateRes
           console.error(`[privacy-notice] Failed to send private invite to ${jid}:`, sendErr.message);
         }
       }
-    } else {
-      console.log(`[privacy-notice] Warning: Could not obtain invite link for group ${groupId} to send to restricted users.`);
     }
   }
 
   return restrictedJids;
 }
 
-// Lightweight HTTP API for Next.js & Django proxy
+// Periodically refresh groups in background every 3 minutes
+setInterval(() => {
+  if (botStatus.isConnected && sock) {
+    refreshGroups();
+  }
+}, 3 * 60 * 1000);
+
+// Periodically process pending message queue if any messages remained
+setInterval(() => {
+  if (botStatus.isConnected && sock) {
+    processPendingQueue();
+  }
+}, 30 * 1000);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. HTTP API SERVER (PORT 5002)
+// ─────────────────────────────────────────────────────────────────────────────
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -394,7 +589,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
-
   const MAX_BODY_SIZE = 50 * 1024 * 1024; // 50 MB
 
   const getBody = () =>
@@ -432,6 +626,7 @@ const server = http.createServer(async (req, res) => {
           hasQr: !!latestQrDataUrl,
           qrDataUrl: latestQrDataUrl,
           pairingCode,
+          pendingQueueCount: loadPendingQueue().length,
         },
       })
     );
@@ -490,7 +685,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(
         JSON.stringify({
           success: false,
-          error: 'WhatsApp Bot is not connected yet. Please scan QR code first.',
+          error: `WhatsApp Bot is not connected yet (status: ${botStatus.status}). Please link WhatsApp first.`,
         })
       );
     }
@@ -507,13 +702,10 @@ const server = http.createServer(async (req, res) => {
         })
         .filter(Boolean);
 
-      // Deduplicate JIDs
       const uniqueJids = Array.from(new Set(jids));
-
       console.log(`Creating group "${name}" with ${uniqueJids.length} participants:`, uniqueJids);
       let group = null;
 
-      // Strategy 1: Try creating group with all participants
       if (uniqueJids.length > 0) {
         try {
           group = await sock.groupCreate(name || 'New Batch Group', uniqueJids);
@@ -522,8 +714,6 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      // Strategy 2: If full group creation failed (e.g. >2 participants or invalid numbers),
-      // try creating group with individual participants one by one until success
       if (!group && uniqueJids.length > 0) {
         for (const pJid of uniqueJids) {
           try {
@@ -536,7 +726,6 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      // Strategy 3: If still no group created and multiple JIDs exist, try first 2 JIDs
       if (!group && uniqueJids.length >= 2) {
         try {
           group = await sock.groupCreate(name || 'New Batch Group', uniqueJids.slice(0, 2));
@@ -546,48 +735,32 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (!group) {
-        // Fallback: Create group using bot's own session fallback if permitted, or fail gracefully
-        const botJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
-        if (botJid && uniqueJids.length > 0) {
-          try {
-            group = await sock.groupCreate(name || 'New Batch Group', [uniqueJids[0]]);
-          } catch {}
-        }
-      }
-
-      if (!group) {
         throw new Error('Could not create WhatsApp group with provided participant numbers. Please verify phone numbers.');
       }
 
-      // Fetch group invite code with retry
       const inviteObj = await getGroupInviteLinkWithRetry(group.id, 3);
       const inviteLink = inviteObj?.link || null;
 
-      // Add all participants to the group safely
       let allUpdateResults = [];
       if (uniqueJids.length > 0) {
         try {
           const resAll = await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
           allUpdateResults = Array.isArray(resAll) ? resAll : [resAll].filter(Boolean);
         } catch (batchAddErr) {
-          console.log('Batch add participants failed, adding individually:', batchAddErr.message);
           for (const pJid of uniqueJids) {
             try {
               const resSingle = await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
               if (Array.isArray(resSingle)) allUpdateResults.push(...resSingle);
               else if (resSingle) allUpdateResults.push(resSingle);
             } catch (singleAddErr) {
-              console.log(`Failed to add participant ${pJid}:`, singleAddErr.message);
               allUpdateResults.push({ jid: pJid, status: '403' });
             }
           }
         }
       }
 
-      // Check for privacy restrictions (e.g. status 403) and send them the invite link directly via PM
       const privacyNotified = await notifyPrivacyRestrictedParticipants(group.id, name, allUpdateResults, inviteLink);
 
-      // Immediately cache newly created group so it's instantly discoverable
       cachedGroups.unshift({
         id: group.id,
         name: name || 'New Batch Group',
@@ -617,7 +790,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // POST /group-invite-link — Fetch invite link for an existing group by groupId or groupName
+  // POST /group-invite-link
   if (req.method === 'POST' && url.pathname === '/group-invite-link') {
     const body = await getBody();
     let { groupId, groupName } = body;
@@ -626,7 +799,7 @@ const server = http.createServer(async (req, res) => {
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot is not connected yet. Please check bot connection.' }));
+      return res.end(JSON.stringify({ success: false, error: `WhatsApp Bot is not connected yet (status: ${botStatus.status}).` }));
     }
 
     const matchGroup = (list, target) => {
@@ -642,23 +815,16 @@ const server = http.createServer(async (req, res) => {
       });
     };
 
-    // If groupId is not provided or not ending with @g.us, try to resolve by groupName
     if ((!groupId || !groupId.includes('@g.us')) && groupName) {
       let found = matchGroup(cachedGroups, groupName);
-
       if (!found) {
-        console.log(`[group-invite-link] Group "${groupName}" not found in current cache (${cachedGroups.length} items). Fetching live groups...`);
         try {
           await refreshGroups(true);
           found = matchGroup(cachedGroups, groupName);
-        } catch (rfErr) {
-          console.warn('[group-invite-link] Live refresh warning:', rfErr.message);
-        }
+        } catch (rfErr) {}
       }
-
       if (found && found.id) {
         groupId = found.id;
-        console.log(`[group-invite-link] Successfully resolved "${groupName}" -> ${groupId} ("${found.name || found.subject}")`);
       }
     }
 
@@ -671,7 +837,6 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      // 1. Inspect actual group metadata & admin rights
       let meta = null;
       let isMember = false;
       let isAdmin = false;
@@ -693,19 +858,14 @@ const server = http.createServer(async (req, res) => {
             isAdmin = selfP.admin === 'admin' || selfP.admin === 'superadmin';
           }
         }
-      } catch (metaErr) {
-        console.warn(`[group-invite-link] groupMetadata notice for ${groupId}:`, metaErr.message);
-      }
+      } catch (metaErr) {}
 
-      // 2. Fetch the invite code with retry
       let { link: inviteLink, error: inviteErr } = await getGroupInviteLinkWithRetry(groupId, 2);
 
-      // Fallback: Check if group description contains an invite link
       if (!inviteLink && meta && meta.desc) {
         const linkMatch = meta.desc.match(/https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9_-]+/i);
         if (linkMatch) {
           inviteLink = linkMatch[0];
-          console.log(`[group-invite-link] ✅ Extracted invite link from group description: ${inviteLink}`);
         }
       }
 
@@ -714,14 +874,11 @@ const server = http.createServer(async (req, res) => {
         if (meta && !isMember) {
           errorMsg = `WhatsApp authorization error: Connected bot account (+${botPhone}) is NOT a member of group "${meta.subject || groupId}". Please add +${botPhone} to the group and promote it to Admin.`;
         } else if (meta && !isAdmin) {
-          errorMsg = `WhatsApp authorization error: Connected bot account (+${botPhone}) is a member, but NOT an Admin in group "${meta.subject || groupId}". In WhatsApp, only group admins can retrieve the group invite link. Please make +${botPhone} a Group Admin in WhatsApp.`;
-        } else if (String(inviteErr).includes('not-authorized')) {
-          errorMsg = `WhatsApp rejected invite code request (not-authorized). Connected bot account (+${botPhone}) lacks Admin rights in group "${meta?.subject || groupId}". Please promote +${botPhone} to Group Admin.`;
+          errorMsg = `WhatsApp authorization error: Connected bot account (+${botPhone}) is a member, but NOT an Admin in group "${meta.subject || groupId}". Only group admins can retrieve the invite link.`;
         } else {
           errorMsg = `Could not generate WhatsApp invite link: ${inviteErr || 'Unknown error'}. Ensure connected bot (+${botPhone}) is an Admin.`;
         }
 
-        console.error(`[group-invite-link] ❌ Failed for ${groupId}: ${errorMsg}`);
         res.writeHead(403, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
           success: false,
@@ -742,13 +899,12 @@ const server = http.createServer(async (req, res) => {
         inviteLink,
       }));
     } catch (err) {
-      console.error('group-invite-link error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
   }
 
-  // GET /group-inspect?groupId=... — Inspect group metadata, participants and permissions
+  // GET /group-inspect
   if (req.method === 'GET' && url.pathname === '/group-inspect') {
     const targetGid = url.searchParams.get('groupId') || url.searchParams.get('id');
     if (!targetGid) {
@@ -771,12 +927,7 @@ const server = http.createServer(async (req, res) => {
         const pNum = (p.id || p.jid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
         const pLid = (p.lid || '').split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
         const isBot = (botPhone && pNum === botPhone) || (botLidClean && pLid === botLidClean);
-        return {
-          id: p.id,
-          phone: pNum,
-          admin: p.admin,
-          isBot,
-        };
+        return { id: p.id, phone: pNum, admin: p.admin, isBot };
       });
 
       const botParticipant = participants.find((p) => p.isBot);
@@ -807,10 +958,7 @@ const server = http.createServer(async (req, res) => {
             isAdmin,
             adminRole: botParticipant?.admin || null,
           },
-          testInviteResult: {
-            inviteLink: testInvite,
-            error: testInviteError,
-          },
+          testInviteResult: { inviteLink: testInvite, error: testInviteError },
           totalParticipants: participants.length,
           admins: participants.filter((p) => p.admin),
         })
@@ -821,19 +969,14 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // POST /group-participants (Add or Remove group members dynamically)
+  // POST /group-participants
   if (req.method === 'POST' && url.pathname === '/group-participants') {
     const body = await getBody();
     const { groupId, participants = [], action = 'add', groupName } = body;
 
     if (!botStatus.isConnected || !sock) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(
-        JSON.stringify({
-          success: false,
-          error: 'WhatsApp Bot is not connected yet. Please scan QR code first.',
-        })
-      );
+      return res.end(JSON.stringify({ success: false, error: 'WhatsApp Bot is not connected yet.' }));
     }
 
     try {
@@ -845,9 +988,7 @@ const server = http.createServer(async (req, res) => {
           const cleanGName = gName.replace(/[^a-z0-9]/g, '');
           return gName === resolvedGroupId.toLowerCase() || (cleanGName && (cleanGName === targetClean || cleanGName.includes(targetClean) || targetClean.includes(cleanGName)));
         });
-        if (found && found.id) {
-          resolvedGroupId = found.id;
-        }
+        if (found && found.id) resolvedGroupId = found.id;
       }
 
       const jids = (Array.isArray(participants) ? participants : [participants])
@@ -871,10 +1012,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ success: false, error: 'No valid participant phone numbers provided' }));
       }
 
-      console.log(`[group-participants] Action: ${action} on ${resolvedGroupId} for:`, jids);
       const updateResult = await sock.groupParticipantsUpdate(resolvedGroupId, jids, action === 'remove' ? 'remove' : 'add');
-
-      // If adding participants, check if any could not be added due to WhatsApp privacy settings
       let privacySent = [];
       if (action === 'add') {
         const groupObj = cachedGroups.find((g) => g.id === resolvedGroupId);
@@ -893,7 +1031,6 @@ const server = http.createServer(async (req, res) => {
         })
       );
     } catch (err) {
-      console.error('[group-participants] Error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
@@ -902,14 +1039,34 @@ const server = http.createServer(async (req, res) => {
   // POST /send-message
   if (req.method === 'POST' && url.pathname === '/send-message') {
     const body = await getBody();
-    const { target, text, document, fileName, mimeType, image } = body;
+    const { target, text, document, fileName, mimeType, image, idempotencyKey, queueIfOffline } = body;
+
+    // Deduplication check: if idempotency key was already delivered, return success immediately
+    if (idempotencyKey && sentMessagesCache.has(idempotencyKey)) {
+      console.log(`ℹ️ [send-msg] Skipping duplicate message with idempotency key: ${idempotencyKey}`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, alreadySent: true, message: 'Message already delivered' }));
+    }
 
     if (!botStatus.isConnected || !sock) {
+      if (queueIfOffline && text) {
+        const enq = enqueuePendingMessage({ target, text, idempotencyKey });
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        return res.end(
+          JSON.stringify({
+            success: true,
+            queued: true,
+            idempotencyKey: enq.idempotencyKey,
+            message: 'WhatsApp Bot is currently offline/reconnecting. Message queued for automatic delivery upon reconnection.',
+          })
+        );
+      }
+
       res.writeHead(503, { 'Content-Type': 'application/json' });
       return res.end(
         JSON.stringify({
           success: false,
-          error: 'WhatsApp Bot is not connected yet. Please scan QR code first.',
+          error: `WhatsApp Bot is not connected yet (current status: ${botStatus.status}). Please link WhatsApp.`,
         })
       );
     }
@@ -918,7 +1075,6 @@ const server = http.createServer(async (req, res) => {
       let jid = String(target || '').trim();
       if (!jid.includes('@')) {
         const targetClean = jid.toLowerCase().replace(/[^a-z0-9]/g, '');
-        // Search in cached groups
         const found = cachedGroups.find((g) => {
           const gName = (g.name || g.subject || '').toLowerCase().trim();
           const cleanGName = gName.replace(/[^a-z0-9]/g, '');
@@ -927,14 +1083,11 @@ const server = http.createServer(async (req, res) => {
 
         if (found && found.id) {
           jid = found.id;
-          console.log(`[send-msg] Resolved group name "${target}" to group JID: ${jid}`);
         } else {
           const cleanNum = jid.replace(/[^0-9]/g, '');
           jid = cleanNum.length >= 10 ? `${cleanNum.startsWith('91') ? cleanNum : '91' + cleanNum}@s.whatsapp.net` : `${cleanNum}@s.whatsapp.net`;
         }
       }
-
-      console.log(`[send-msg] jid=${jid} | doc=${!!document} | img=${!!image} | txt=${!!text}`);
 
       let result;
 
@@ -943,52 +1096,67 @@ const server = http.createServer(async (req, res) => {
         const docBuffer = Buffer.from(base64Data, 'base64');
         const resolvedMime = mimeType || 'application/octet-stream';
         const resolvedFileName = fileName || 'document';
-        console.log(`[send-msg] Sending doc: ${resolvedFileName} | mime: ${resolvedMime} | size: ${docBuffer.length} bytes`);
 
         if (text) {
           await sock.sendMessage(jid, { text });
-          console.log('[send-msg] Text sent, now sending document...');
         }
         result = await sock.sendMessage(jid, {
           document: docBuffer,
           fileName: resolvedFileName,
           mimetype: resolvedMime,
         });
-        console.log(`[send-msg] Document sent OK to ${jid}`);
       } else if (image) {
         const base64Data = image.includes(',') ? image.split(',')[1] : image;
         const imgBuffer = Buffer.from(base64Data, 'base64');
-        console.log(`[send-msg] Sending image size: ${imgBuffer.length} bytes`);
         result = await sock.sendMessage(jid, {
           image: imgBuffer,
           caption: text || '',
         });
-        console.log(`[send-msg] Image sent OK to ${jid}`);
       } else if (text) {
         result = await sock.sendMessage(jid, { text });
-        console.log(`[send-msg] Text sent OK to ${jid}`);
       } else {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ success: false, error: 'No text, document, or image provided.' }));
       }
 
+      if (idempotencyKey) {
+        markMessageSent(idempotencyKey);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: true, result }));
     } catch (err) {
-      console.error('[send-msg] ERROR:', err.message, err.stack?.split('\n')[1] || '');
+      console.error('[send-msg] ERROR:', err.message);
+
+      // If network transient failure on a text message, queue it
+      if (queueIfOffline && text) {
+        const enq = enqueuePendingMessage({ target, text, idempotencyKey });
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        return res.end(
+          JSON.stringify({
+            success: true,
+            queued: true,
+            idempotencyKey: enq.idempotencyKey,
+            message: 'Transient send failure. Message queued for automatic delivery upon reconnection.',
+          })
+        );
+      }
+
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ success: false, error: err.message }));
     }
   }
 
-  // POST or GET /reset-auth or /disconnect
+  // POST or GET /reset-auth or /disconnect or /logout
   if (
     (req.method === 'POST' || req.method === 'GET') &&
     (url.pathname === '/reset-auth' || url.pathname === '/disconnect' || url.pathname === '/logout')
   ) {
     try {
-      console.log('🔄 Manual Disconnect / reset session requested by user.');
+      console.log('🔄 Manual Disconnect requested by user.');
+      // Stop the reconnect loop FIRST before closing socket
       userRequestedLogout = true;
+      pendingRestartReason = null;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -998,7 +1166,7 @@ const server = http.createServer(async (req, res) => {
           sock.ev.removeAllListeners();
           sock.ws?.removeAllListeners?.();
           sock.ws?.close();
-          sock.end();
+          sock.end?.();
         } catch (e) {}
         sock = null;
       }
@@ -1007,25 +1175,21 @@ const server = http.createServer(async (req, res) => {
         isConnected: false,
         phoneNumber: null,
         userName: null,
-        status: 'scan_required',
+        status: 'idle',
         lastConnectedAt: null,
       };
       latestQrDataUrl = null;
       latestQrString = null;
       pairingCode = null;
 
+      // Delete session so next /connect starts fresh with a QR
       try {
-        if (fs.existsSync(AUTH_DIR)) {
-          fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-        }
-      } catch (e) {
-        console.warn('AUTH_DIR clean notice:', e.message);
-      }
+        if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        if (fs.existsSync(BACKUP_CREDS_FILE)) fs.unlinkSync(BACKUP_CREDS_FILE);
+      } catch (e) {}
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, message: 'Session reset. Generating fresh QR code...' }));
-
-      scheduleRestart(1200);
+      res.end(JSON.stringify({ success: true, message: 'Disconnected. Use POST /connect to reconnect.' }));
       return;
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1033,8 +1197,61 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // POST /connect — start/resume WhatsApp connection manually
+  if (req.method === 'POST' && url.pathname === '/connect') {
+    if (botStatus.isConnected) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, message: 'Already connected.', bot: botStatus }));
+    }
+    if (isStarting) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ success: true, message: 'Connection already in progress...' }));
+    }
+    console.log('📲 Manual /connect requested.');
+    userRequestedLogout = false; // allow reconnects
+    reconnectAttempts = 0;
+    botStatus.status = 'connecting';
+    startWhatsApp('manual-connect');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ success: true, message: 'Connecting to WhatsApp... Poll /status for QR code.' }));
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Route not found' }));
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use by another running bot process!`);
+    console.error('Stopping this duplicate instance to prevent WhatsApp session conflicts.');
+    process.exit(1);
+  } else {
+    console.error('Server error:', err);
+  }
+});
+
+// Process safety
+process.on('uncaughtException', (err) => {
+  console.error('Bot Uncaught Exception:', err?.message || err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('Bot Unhandled Rejection:', err?.message || err);
+});
+
+process.on('SIGINT', () => {
+  console.log('Shutting down WhatsApp bot gracefully...');
+  if (sock) {
+    try { sock.ws?.close(); } catch (e) {}
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down WhatsApp bot gracefully...');
+  if (sock) {
+    try { sock.ws?.close(); } catch (e) {}
+  }
+  process.exit(0);
 });
 
 server.listen(PORT, () => {

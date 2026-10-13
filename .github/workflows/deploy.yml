@@ -86,14 +86,23 @@ jobs:
 
             # Ensure WhatsApp bot runs via PM2
             if command -v pm2 &> /dev/null; then
-              # Restart Django/frontend if managed by pm2
-              pm2 restart all --silent 2>/dev/null || true
-              # Start WhatsApp bot if not already running
-              pm2 describe whatsapp-bot > /dev/null 2>&1 || \
+              # Reload Django/Gunicorn (graceful, zero-downtime)
+              pm2 reload django-backend --silent 2>/dev/null || pm2 restart django-backend --silent 2>/dev/null || true
+              pm2 reload frontend --silent 2>/dev/null || pm2 restart frontend --silent 2>/dev/null || true
+
+              # WhatsApp bot: reload it so new server.js code is picked up,
+              # but PM2 will restart it immediately and it will auto-resume the
+              # saved session (hasSavedSession() check on boot).
+              # --no-autorestart is NOT set — we WANT PM2 to restart on crash.
+              # The bot's own reconnect loop handles WhatsApp-level reconnects.
+              if pm2 describe whatsapp-bot > /dev/null 2>&1; then
+                pm2 reload whatsapp-bot --silent || pm2 restart whatsapp-bot --silent || true
+              else
                 pm2 start frontend/learnmore-moniter/whatsapp-bot/server.js \
                   --name whatsapp-bot \
                   --restart-delay=3000 \
-                  --max-restarts=10 || true
+                  --max-restarts=20 || true
+              fi
               pm2 save --force || true
             fi
 
