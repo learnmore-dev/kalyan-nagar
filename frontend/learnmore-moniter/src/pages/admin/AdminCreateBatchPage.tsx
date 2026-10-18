@@ -118,6 +118,17 @@ export default function AdminCreateBatchPage() {
   const [schedule, setSchedule] = useState<'WD' | 'WE'>('WD');
   const [batchTime, setBatchTime] = useState<string>('10AM');
   const [courseCode, setCourseCode] = useState<string>('SQL');
+  const [crmSubjects, setCrmSubjects] = useState<Array<{id: number; name: string; code: string | null}>>([]);
+
+  // CRM se subjects fetch karo
+  useEffect(() => {
+    fetch('https://enquiry.edulearnntech.in/api/course-mapping/external/subjects/')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setCrmSubjects(data);
+      })
+      .catch(() => {});
+  }, []);
 
   const COURSE_SHORT_CODES: Record<string, string> = {
     course_python: 'PY',
@@ -593,13 +604,23 @@ export default function AdminCreateBatchPage() {
                     <label className="block font-bold text-emerald-900 text-[10px] uppercase tracking-wider">
                       5. Course Code *
                     </label>
-                    <input
-                      type="text"
+                    <select
                       value={courseCode}
-                      onChange={(e) => setCourseCode(e.target.value.toUpperCase())}
-                      placeholder="e.g. PY, JAVA"
-                      className="w-full rounded-xl border border-emerald-300 bg-white px-2.5 py-2 text-slate-800 text-xs font-bold focus:outline-none focus:border-emerald-600 uppercase"
-                    />
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCourseCode(val.toUpperCase());
+                        // course name bhi update karo
+                        const found = crmSubjects.find(s => (s.code || s.name).toUpperCase() === val.toUpperCase());
+                        if (found) setCourseName(found.name);
+                      }}
+                      className="w-full rounded-xl border border-emerald-300 bg-white px-2.5 py-2 text-slate-800 text-xs font-bold focus:outline-none focus:border-emerald-600 cursor-pointer"
+                    >
+                      {crmSubjects.length === 0 && <option value={courseCode}>{courseCode}</option>}
+                      {crmSubjects.map(s => {
+                        const code = (s.code || s.name.substring(0, 6)).toUpperCase();
+                        return <option key={s.id} value={code}>{s.name} ({code})</option>;
+                      })}
+                    </select>
                   </div>
 
                   <div className="space-y-1">
