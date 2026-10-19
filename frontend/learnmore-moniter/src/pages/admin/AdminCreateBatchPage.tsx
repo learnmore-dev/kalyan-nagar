@@ -395,6 +395,7 @@ export default function AdminCreateBatchPage() {
                 if (code) setCourseCode(code.toUpperCase());
               }}
             />
+          </div>
 
           {/* Batch Name */}
           <div className="space-y-1.5">
