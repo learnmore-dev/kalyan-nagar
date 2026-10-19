@@ -68,7 +68,7 @@ export default function TrainerBatchDetailPage() {
 
         // Fetch live CRM status for students
         try {
-          const crmRes = await fetch('http://127.0.0.1:8000/api/course-mapping/batches/');
+          const crmRes = await fetch('https://enquiry.edulearnntech.in/api/course-mapping/batches/');
           if (crmRes.ok) {
             const crmData = await crmRes.json();
             const matchedBatch = (crmData.batches || []).find(
@@ -109,7 +109,7 @@ export default function TrainerBatchDetailPage() {
     setStatusFeedback(null);
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/course-mapping/batch-sync/', {
+      const res = await fetch('https://enquiry.edulearnntech.in/api/course-mapping/batch-sync/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -156,7 +156,7 @@ export default function TrainerBatchDetailPage() {
     if (!students.length) return;
     setUpdatingStudentId('ALL');
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/course-mapping/batch-sync/', {
+      const res = await fetch('https://enquiry.edulearnntech.in/api/course-mapping/batch-sync/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
