@@ -329,19 +329,38 @@ export default function AdminCreateBatchPage() {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6 text-xs sm:text-sm">
-          {/* 1. Course Name (Manual) */}
+          {/* 1. Course Name — CRM se */}
           <div className="space-y-1.5">
             <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
               <BookOpen className="h-4 w-4 text-indigo-600" /> COURSE NAME *
             </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. SQL, Python Full Stack, Power BI, Advanced Excel"
-              value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
-            />
+            {crmSubjects.length > 0 ? (
+              <select
+                required
+                value={courseName}
+                onChange={(e) => {
+                  setCourseName(e.target.value);
+                  // Auto set course code from subject code
+                  const found = crmSubjects.find(s => s.name === e.target.value);
+                  if (found && found.code) setCourseCode(found.code.toUpperCase());
+                }}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+              >
+                <option value="">-- Select Course --</option>
+                {crmSubjects.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                required
+                placeholder="e.g. SQL, Python Full Stack, Power BI"
+                value={courseName}
+                onChange={(e) => setCourseName(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+              />
+            )}
           </div>
 
           {/* Batch Name */}
