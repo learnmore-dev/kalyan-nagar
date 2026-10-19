@@ -127,6 +127,16 @@ export default function AdminBatchesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: newIsActive, is_completed: !newIsActive }),
       });
+      // CRM sync when batch is marked complete
+      if (!newIsActive) {
+        try {
+          await fetch('https://enquiry.edulearnntech.in/api/course-mapping/batch-sync/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ batch_id: batch.id, batch_name: batch.name, action: 'complete', students: [] }),
+          });
+        } catch (e) { /* CRM sync optional */ }
+      }
       fetchBatchesAndTrainers();
     } catch { fetchBatchesAndTrainers(); }
   };
