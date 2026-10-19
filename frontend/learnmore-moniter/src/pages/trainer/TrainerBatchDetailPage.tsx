@@ -141,11 +141,21 @@ export default function TrainerBatchDetailPage() {
         });
         setStatusFeedback(`✅ ${student.name} marked as ${newStatus.toUpperCase()} in CRM!`);
         setTimeout(() => setStatusFeedback(null), 4000);
+        // Also update trainer portal batch
+        if (newStatus === 'completed' && batch?.id) {
+          try {
+            await fetch(`/api/batches/${batch.id}/`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ is_active: false, is_completed: true }),
+            });
+          } catch (e) { /* optional */ }
+        }
       } else {
         alert(data.error || data.message || 'Failed to update student status in CRM.');
       }
     } catch (err) {
-      alert('CRM Server (port 8000) not responding. Ensure CRM backend is running.');
+      alert('CRM Server connection failed. Please try again.');
     } finally {
       setUpdatingStudentId(null);
     }
