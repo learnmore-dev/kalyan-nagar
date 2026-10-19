@@ -4,6 +4,59 @@ import { User } from '@/lib/types';
 import { CourseSyllabus, INSTITUTE_COURSES } from '@/lib/syllabusData';
 import { ArrowLeft, CheckCircle2, MessageSquare, Sparkles, BookOpen, Layers, Copy, Check, Users, Plus, Trash2, UserPlus, ClipboardList } from 'lucide-react';
 
+// Searchable Course Dropdown Component
+function CourseSearchDropdown({ subjects, value, onChange }: {
+  subjects: Array<{id: number; name: string; code: string | null}>;
+  value: string;
+  onChange: (name: string, code: string | null) => void;
+}) {
+  const [search, setSearch] = React.useState(value || '');
+  const [open, setOpen] = React.useState(false);
+
+  const filtered = subjects.filter(s =>
+    s.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  React.useEffect(() => { setSearch(value || ''); }, [value]);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        type="text"
+        required
+        value={search}
+        placeholder="Type to search course..."
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
+          background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+          maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+        }}>
+          {filtered.map(s => (
+            <div
+              key={s.id}
+              onMouseDown={() => { onChange(s.name, s.code); setSearch(s.name); setOpen(false); }}
+              style={{
+                padding: '9px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                background: s.name === value ? '#eff6ff' : '#fff', color: '#1e293b',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+              onMouseLeave={e => (e.currentTarget.style.background = s.name === value ? '#eff6ff' : '#fff')}
+            >
+              {s.name} {s.code ? <span style={{ color: '#94a3b8', fontSize: 11 }}>({s.code})</span> : ''}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminCreateBatchPage() {
   const navigate = useNavigate();
   const [trainers, setTrainers] = useState<User[]>([]);
@@ -329,39 +382,19 @@ export default function AdminCreateBatchPage() {
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6 text-xs sm:text-sm">
-          {/* 1. Course Name — CRM se */}
+          {/* 1. Course Name — CRM se searchable */}
           <div className="space-y-1.5">
             <label className="block font-bold text-slate-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
               <BookOpen className="h-4 w-4 text-indigo-600" /> COURSE NAME *
             </label>
-            {crmSubjects.length > 0 ? (
-              <select
-                required
-                value={courseName}
-                onChange={(e) => {
-                  setCourseName(e.target.value);
-                  // Auto set course code from subject code
-                  const found = crmSubjects.find(s => s.name === e.target.value);
-                  if (found && found.code) setCourseCode(found.code.toUpperCase());
-                }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
-              >
-                <option value="">-- Select Course --</option>
-                {crmSubjects.map(s => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                required
-                placeholder="e.g. SQL, Python Full Stack, Power BI"
-                value={courseName}
-                onChange={(e) => setCourseName(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 font-semibold focus:border-indigo-600 focus:outline-none transition-all"
-              />
-            )}
-          </div>
+            <CourseSearchDropdown
+              subjects={crmSubjects}
+              value={courseName}
+              onChange={(name, code) => {
+                setCourseName(name);
+                if (code) setCourseCode(code.toUpperCase());
+              }}
+            />
 
           {/* Batch Name */}
           <div className="space-y-1.5">
