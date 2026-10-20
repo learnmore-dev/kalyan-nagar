@@ -134,7 +134,7 @@ export interface TrainerAttendance {
   device_info?: string | null;
 }
 
-export type LeaveType = 'sick' | 'casual' | 'emergency' | 'weekoff' | 'optional_holiday';
+export type LeaveType = 'sick' | 'casual' | 'emergency' | 'weekoff' | 'optional_holiday' | 'mandatory_holiday' | 'custom' | string;
 export type LeaveStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Leave {
@@ -187,9 +187,11 @@ export interface TaskLog {
 }
 
 export interface Holiday {
+  id?: string;
   date: string;
   name: string;
-  type: 'mandatory' | 'optional';
+  type: 'mandatory' | 'optional' | 'custom' | string;
+  description?: string;
 }
 
 export interface IncentiveReport {
@@ -221,6 +223,7 @@ export interface TrainerLeaveBalance {
   optional_holiday_quota: number; // default 5
   optional_holiday_used: number;
   mandatory_holiday_count: number; // default 5
+  mandatory_holiday_used?: number;
   casual_used?: number;
   sick_used?: number;
   optional_used?: number;
@@ -249,6 +252,7 @@ export interface LeaveAuditLog {
 export interface HolidayConfig {
   mandatory_holidays: Holiday[];
   optional_holidays: Holiday[];
+  custom_holidays?: Holiday[];
   week_off_pattern: 'sunday' | 'sat_sun' | 'alternate_sat_sun';
 }
 

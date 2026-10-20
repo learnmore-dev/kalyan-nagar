@@ -1085,6 +1085,7 @@ def sync_trainer_balance(trainer_id_val):
     sick_days = 0
     emergency_days = 0
     optional_days = 0
+    mandatory_days = 0
 
     for l in approved_leaves:
         days = 1
@@ -1098,6 +1099,8 @@ def sync_trainer_balance(trainer_id_val):
 
         if l.leave_type == 'optional_holiday':
             optional_days += days
+        elif l.leave_type == 'mandatory_holiday':
+            mandatory_days += days
         elif l.leave_type == 'casual':
             casual_days += days
         elif l.leave_type == 'sick':
@@ -1108,6 +1111,10 @@ def sync_trainer_balance(trainer_id_val):
     total_cs_used = casual_days + sick_days + emergency_days
     balance.casual_sick_used = total_cs_used
     balance.optional_holiday_used = optional_days
+    try:
+        balance.mandatory_holiday_used = mandatory_days
+    except Exception:
+        pass
     balance.trainer_name = trainer.name
     balance.save()
     return balance
@@ -1898,6 +1905,7 @@ class HolidayViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         mandatory = [h for h in serializer.data if h.get('type') == 'mandatory']
         optional = [h for h in serializer.data if h.get('type') == 'optional']
+        custom = [h for h in serializer.data if h.get('type') not in ['mandatory', 'optional']]
 
         return Response({
             'success': True,
@@ -1905,24 +1913,67 @@ class HolidayViewSet(viewsets.ModelViewSet):
             'holidayConfig': {
                 'mandatory_holidays': mandatory,
                 'optional_holidays': optional,
+                'custom_holidays': custom,
                 'week_off_pattern': 'sunday',
             }
         })
 
     def create(self, request, *args, **kwargs):
-        # Handle batch update from Admin Holidays Page
         data = request.data
-        if 'mandatory_holidays' in data or 'optional_holidays' in data:
+        # Handle batch update from Admin Holidays Page
+        if 'mandatory_holidays' in data or 'optional_holidays' in data or 'custom_holidays' in data:
             Holiday.objects.all().delete()
             for h in data.get('mandatory_holidays', []):
                 if h.get('name') and h.get('date'):
-                    Holiday.objects.create(id=str(uuid.uuid4()), name=h['name'], date=h['date'], type='mandatory')
+                    Holiday.objects.create(
+                        id=str(uuid.uuid4()),
+                        name=h['name'],
+                        date=h['date'],
+                        type='mandatory',
+                        description=h.get('description', '')
+                    )
             for h in data.get('optional_holidays', []):
                 if h.get('name') and h.get('date'):
-                    Holiday.objects.create(id=str(uuid.uuid4()), name=h['name'], date=h['date'], type='optional')
+                    Holiday.objects.create(
+                        id=str(uuid.uuid4()),
+                        name=h['name'],
+                        date=h['date'],
+                        type='optional',
+                        description=h.get('description', '')
+                    )
+            for h in data.get('custom_holidays', []):
+                if h.get('name') and h.get('date'):
+                    Holiday.objects.create(
+                        id=str(uuid.uuid4()),
+                        name=h['name'],
+                        date=h['date'],
+                        type=h.get('type', 'custom'),
+                        description=h.get('description', '')
+                    )
             return Response({'success': True, 'message': 'Holiday calendar updated successfully!'})
 
+        # Handle single custom leave/holiday creation by Admin
+        name = data.get('name')
+        date = data.get('date')
+        htype = data.get('type', 'mandatory')
+        desc = data.get('description', '')
+        if name and date:
+            h = Holiday.objects.create(
+                id=str(uuid.uuid4()),
+                name=name,
+                date=date,
+                type=htype,
+                description=desc
+            )
+            serializer = self.get_serializer(h)
+            return Response({'success': True, 'holiday': serializer.data, 'message': f'{htype.title()} leave created successfully!'}, status=status.HTTP_201_CREATED)
+
         return super().create(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        holiday = self.get_object()
+        holiday.delete()
+        return Response({'success': True, 'message': 'Holiday deleted successfully!'})
 
 
 

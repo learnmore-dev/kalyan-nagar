@@ -368,6 +368,12 @@ class HolidaySerializer(serializers.ModelSerializer):
     class Meta:
         model = Holiday
         fields = '__all__'
+        read_only_fields = ['id']
+
+    def create(self, validated_data):
+        if not validated_data.get('id'):
+            validated_data['id'] = str(uuid.uuid4())
+        return super().create(validated_data)
 
 
 class WhatsAppGroupSerializer(serializers.ModelSerializer):

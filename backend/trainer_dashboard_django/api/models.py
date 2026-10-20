@@ -187,6 +187,8 @@ class Leave(models.Model):
         ('emergency', 'Emergency Leave'),
         ('weekoff', 'Week Off'),
         ('optional_holiday', 'Optional Holiday'),
+        ('mandatory_holiday', 'Mandatory Holiday'),
+        ('custom', 'Custom Leave'),
     )
     STATUS_CHOICES = (
         ('pending', 'Pending'),
@@ -197,7 +199,7 @@ class Leave(models.Model):
     id = models.CharField(max_length=100, primary_key=True, default=uuid.uuid4)
     trainer = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='leaves')
     trainer_name = models.CharField(max_length=150, blank=True, null=True)
-    leave_type = models.CharField(max_length=30, choices=LEAVE_TYPE_CHOICES, default='casual')
+    leave_type = models.CharField(max_length=60, choices=LEAVE_TYPE_CHOICES, default='casual')
     start_date = models.CharField(max_length=50)
     end_date = models.CharField(max_length=50)
     reason = models.TextField()
@@ -217,6 +219,7 @@ class TrainerLeaveBalance(models.Model):
     optional_holiday_quota = models.IntegerField(default=5)
     optional_holiday_used = models.IntegerField(default=0)
     mandatory_holiday_count = models.IntegerField(default=5)
+    mandatory_holiday_used = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.trainer_name} Leave Balance"
@@ -326,7 +329,7 @@ class Holiday(models.Model):
     id = models.CharField(max_length=100, primary_key=True, default=uuid.uuid4)
     name = models.CharField(max_length=200)
     date = models.CharField(max_length=50)
-    type = models.CharField(max_length=30, default='mandatory') # mandatory or optional
+    type = models.CharField(max_length=60, default='mandatory') # mandatory, optional, custom, etc.
     description = models.TextField(blank=True, null=True)
 
     def __str__(self):

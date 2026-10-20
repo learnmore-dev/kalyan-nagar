@@ -22,6 +22,7 @@ export default function AdminHolidaysPage() {
   const [config, setConfig] = useState<HolidayConfig>({
     mandatory_holidays: MANDATORY_HOLIDAYS_2026,
     optional_holidays: OPTIONAL_HOLIDAYS_2026,
+    custom_holidays: [],
     week_off_pattern: 'sunday',
   });
   const [schedule, setSchedule] = useState<any>(null);
@@ -30,14 +31,22 @@ export default function AdminHolidaysPage() {
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // New Holiday Input state
-  const [newMandatory, setNewMandatory] = useState<{ name: string; date: string }>({ name: '', date: '' });
-  const [newOptional, setNewOptional] = useState<{ name: string; date: string }>({ name: '', date: '' });
+  const [newMandatory, setNewMandatory] = useState<{ name: string; date: string; description?: string }>({ name: '', date: '', description: '' });
+  const [newOptional, setNewOptional] = useState<{ name: string; date: string; description?: string }>({ name: '', date: '', description: '' });
+  const [newCustom, setNewCustom] = useState<{ name: string; date: string; type: 'custom' | 'mandatory' | 'optional'; description: string }>({
+    name: '',
+    date: '',
+    type: 'custom',
+    description: '',
+  });
 
   // Admin User Leave Control state
   const [trainers, setTrainers] = useState<User[]>([]);
   const [balances, setBalances] = useState<any[]>([]);
   const [selectedTrainerId, setSelectedTrainerId] = useState<string>('');
-  const [deductLeaveType, setDeductLeaveType] = useState<'casual' | 'optional_holiday' | 'sick' | 'emergency' | 'weekoff'>('casual');
+  const [deductLeaveType, setDeductLeaveType] = useState<
+    'casual' | 'optional_holiday' | 'mandatory_holiday' | 'custom' | 'sick' | 'emergency' | 'weekoff'
+  >('casual');
   const [deductDate, setDeductDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [deductReason, setDeductReason] = useState<string>('');
   const [deductLoading, setDeductLoading] = useState<boolean>(false);
@@ -68,14 +77,19 @@ export default function AdminHolidaysPage() {
             optional_holidays: Array.isArray(data.holidayConfig.optional_holidays) && data.holidayConfig.optional_holidays.length > 0
               ? data.holidayConfig.optional_holidays
               : OPTIONAL_HOLIDAYS_2026,
+            custom_holidays: Array.isArray(data.holidayConfig.custom_holidays)
+              ? data.holidayConfig.custom_holidays
+              : [],
             week_off_pattern: data.holidayConfig.week_off_pattern || 'sunday',
           });
         } else if (Array.isArray(data.holidays)) {
           const mandatory = data.holidays.filter((h: any) => h.type === 'mandatory');
           const optional = data.holidays.filter((h: any) => h.type === 'optional');
+          const custom = data.holidays.filter((h: any) => h.type !== 'mandatory' && h.type !== 'optional');
           setConfig({
             mandatory_holidays: mandatory.length > 0 ? mandatory : MANDATORY_HOLIDAYS_2026,
             optional_holidays: optional.length > 0 ? optional : OPTIONAL_HOLIDAYS_2026,
+            custom_holidays: custom,
             week_off_pattern: data.week_off_pattern || 'sunday',
           });
         }
@@ -116,14 +130,14 @@ export default function AdminHolidaysPage() {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch('/api/holidays', {
+      const res = await fetch('/api/holidays/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
       const data = await res.json();
       if (data && (data.success || data.id || data.message)) {
-        setMessage({ text: 'Holiday & Week-Off rules saved successfully!', type: 'success' });
+        setMessage({ text: 'All Holidays & Custom Leave rules saved successfully!', type: 'success' });
         fetchHolidayConfig();
       } else {
         setMessage({ text: data?.error || 'Failed to save configuration', type: 'error' });
@@ -217,8 +231,33 @@ export default function AdminHolidaysPage() {
     }));
   };
 
+  const addCustomHoliday = () => {
+    if (!newCustom.name || !newCustom.date) return;
+    setConfig((prev) => ({
+      ...prev,
+      custom_holidays: [
+        ...(prev?.custom_holidays || []),
+        {
+          name: newCustom.name,
+          date: newCustom.date,
+          type: newCustom.type || 'custom',
+          description: newCustom.description || '',
+        },
+      ],
+    }));
+    setNewCustom({ name: '', date: '', type: 'custom', description: '' });
+  };
+
+  const removeCustomHoliday = (index: number) => {
+    setConfig((prev) => ({
+      ...prev,
+      custom_holidays: (prev?.custom_holidays || []).filter((_, i) => i !== index),
+    }));
+  };
+
   const mandatoryList = config?.mandatory_holidays || [];
   const optionalList = config?.optional_holidays || [];
+  const customList = config?.custom_holidays || [];
 
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
@@ -342,7 +381,9 @@ export default function AdminHolidaysPage() {
               className="w-full p-2.5 rounded-xl bg-slate-800/90 border border-indigo-500/30 text-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="casual">Casual Leave (Minus Monthly Quota)</option>
+              <option value="mandatory_holiday">Mandatory Holiday (Compulsory Calendar Off)</option>
               <option value="optional_holiday">Optional Holiday (Minus Festival Pool)</option>
+              <option value="custom">Custom / Special Admin Leave</option>
               <option value="weekoff">Weekly Off / Scheduled Week Off</option>
               <option value="sick">Sick / Medical Leave</option>
               <option value="emergency">Emergency / Unauthorized Absence</option>
@@ -631,6 +672,131 @@ export default function AdminHolidaysPage() {
             >
               <Plus className="h-3.5 w-3.5" /> Add Optional Holiday
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Custom & Special Leaves (Admin Field Creator) ─────────────────────────────────── */}
+      <div className="p-6 bg-gradient-to-br from-white via-indigo-50/30 to-purple-50/40 rounded-3xl border border-indigo-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-indigo-100">
+          <div>
+            <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-indigo-600" /> Custom Leaves & Admin Declared Holidays ({customList.length} Active)
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              Create ANY custom leave or special holiday with custom fields. All users and trainers will instantly see and receive it!
+            </p>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-900 text-xs font-extrabold flex items-center gap-1">
+            <CheckCircle2 className="h-3.5 w-3.5 text-indigo-600" /> Visible to All Users
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Custom Creation Fields Form */}
+          <div className="lg:col-span-1 p-5 rounded-2xl bg-white border border-indigo-100 shadow-xs space-y-3">
+            <div className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Plus className="h-4 w-4 text-indigo-600" /> Create Custom Leave
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 block">Leave / Holiday Title *</label>
+              <input
+                type="text"
+                placeholder="e.g. Founder's Day / Emergency Rest"
+                value={newCustom.name}
+                onChange={(e) => setNewCustom((p) => ({ ...p, name: e.target.value }))}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:border-indigo-600 bg-slate-50"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 block">Holiday Date *</label>
+              <input
+                type="date"
+                value={newCustom.date}
+                onChange={(e) => setNewCustom((p) => ({ ...p, date: e.target.value }))}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:border-indigo-600 bg-slate-50"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 block">Leave Category / Type</label>
+              <select
+                value={newCustom.type}
+                onChange={(e) => setNewCustom((p) => ({ ...p, type: e.target.value as any }))}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:border-indigo-600 bg-slate-50 font-semibold text-slate-800"
+              >
+                <option value="custom">Custom / Special Admin Leave</option>
+                <option value="mandatory">Mandatory Holiday (Compulsory for All)</option>
+                <option value="optional">Optional Holiday (Festival Pool)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 block">Description / Note for Users</label>
+              <textarea
+                rows={2}
+                placeholder="e.g. Approved holiday for all branch staff"
+                value={newCustom.description}
+                onChange={(e) => setNewCustom((p) => ({ ...p, description: e.target.value }))}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:border-indigo-600 bg-slate-50 placeholder-slate-400"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={addCustomHoliday}
+              className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+            >
+              <Plus className="h-4 w-4" /> Add Leave to Calendar
+            </button>
+          </div>
+
+          {/* List of Custom Leaves */}
+          <div className="lg:col-span-2 space-y-3">
+            <div className="text-xs font-extrabold text-slate-700 uppercase tracking-wider">
+              Configured Custom & Special Leaves ({customList.length})
+            </div>
+
+            {customList.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-white/80 border border-dashed border-slate-200 text-center space-y-2">
+                <Sparkles className="h-8 w-8 text-indigo-400 mx-auto opacity-60" />
+                <p className="text-xs font-bold text-slate-700">No Custom Leaves created yet.</p>
+                <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                  Use the form on the left to declare any special holiday or custom leave. It will be immediately broadcast to all users and trainers.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
+                {customList.map((c, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-2xl bg-white border border-indigo-100 shadow-xs space-y-2 flex flex-col justify-between"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          {c.type === 'mandatory' ? '🏛️ Mandatory' : c.type === 'optional' ? '✨ Optional' : '🌟 Custom Leave'}
+                        </span>
+                        <button
+                          onClick={() => removeCustomHoliday(index)}
+                          className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 hover:text-rose-700 cursor-pointer transition-colors"
+                          title="Remove custom leave"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <h4 className="font-extrabold text-xs text-slate-900">{c.name}</h4>
+                      <div className="text-[11px] font-mono font-bold text-indigo-600">📅 {c.date}</div>
+                      {c.description && (
+                        <p className="text-[11px] text-slate-600 italic">{c.description}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

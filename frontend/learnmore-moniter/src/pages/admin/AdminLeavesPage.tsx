@@ -724,6 +724,7 @@ export default function AdminLeavesPage() {
                   >
                     <option value="casual_sick">Casual / Sick Leave</option>
                     <option value="optional_holiday">Optional Holiday</option>
+                    <option value="mandatory_holiday">Mandatory Holiday</option>
                   </select>
                 </div>
 

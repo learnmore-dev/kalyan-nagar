@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getStoredUser } from '@/lib/auth';
 import { User, Leave, LeaveType } from '@/lib/types';
-import { OPTIONAL_HOLIDAYS_2026, CASUAL_LEAVE_LIMIT_PER_MONTH, OPTIONAL_HOLIDAY_LIMIT_PER_YEAR } from '@/lib/holidays';
+import { MANDATORY_HOLIDAYS_2026, OPTIONAL_HOLIDAYS_2026, CASUAL_LEAVE_LIMIT_PER_MONTH, OPTIONAL_HOLIDAY_LIMIT_PER_YEAR } from '@/lib/holidays';
 import {
   CalendarDays,
   Plus,
@@ -83,8 +83,13 @@ export default function TrainerLeavesPage() {
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState('');
   const [selectedOptionalHoliday, setSelectedOptionalHoliday] = useState<string>('');
+  const [selectedMandatoryHoliday, setSelectedMandatoryHoliday] = useState<string>('');
+  const [selectedCustomHoliday, setSelectedCustomHoliday] = useState<string>('');
   const [balance, setBalance] = useState<any>(null);
+  const [mandatoryHolidaysList, setMandatoryHolidaysList] = useState<any[]>(MANDATORY_HOLIDAYS_2026);
   const [optionalHolidaysList, setOptionalHolidaysList] = useState<any[]>(OPTIONAL_HOLIDAYS_2026);
+  const [customHolidaysList, setCustomHolidaysList] = useState<any[]>([]);
+  const [holidayTab, setHolidayTab] = useState<'mandatory' | 'optional' | 'custom'>('mandatory');
 
   const fetchUserData = async (userId: string) => {
     try {
@@ -107,8 +112,12 @@ export default function TrainerLeavesPage() {
 
       const hData = await hRes.json();
       if (hData?.success && Array.isArray(hData.holidays)) {
+        const mand = hData.holidays.filter((h: any) => h.type === 'mandatory');
         const opts = hData.holidays.filter((h: any) => h.type === 'optional');
+        const cust = hData.holidays.filter((h: any) => h.type !== 'mandatory' && h.type !== 'optional');
+        if (mand.length > 0) setMandatoryHolidaysList(mand);
         if (opts.length > 0) setOptionalHolidaysList(opts);
+        setCustomHolidaysList(cust);
       }
     } catch {
       // silent fallback
@@ -150,6 +159,20 @@ export default function TrainerLeavesPage() {
       if (h) {
         finalReason = `Optional Holiday: ${h.name}. ${reason}`;
       }
+    } else if (leaveType === 'mandatory_holiday' && selectedMandatoryHoliday) {
+      finalStart = selectedMandatoryHoliday;
+      finalEnd = selectedMandatoryHoliday;
+      const h = mandatoryHolidaysList.find((x) => x.date === selectedMandatoryHoliday);
+      if (h) {
+        finalReason = `Mandatory Holiday: ${h.name}. ${reason}`;
+      }
+    } else if (leaveType === 'custom' && selectedCustomHoliday) {
+      finalStart = selectedCustomHoliday;
+      finalEnd = selectedCustomHoliday;
+      const h = customHolidaysList.find((x) => x.date === selectedCustomHoliday);
+      if (h) {
+        finalReason = `Special Admin Leave: ${h.name}. ${reason}`;
+      }
     }
 
     try {
@@ -176,6 +199,8 @@ export default function TrainerLeavesPage() {
         setMessage({ text: 'Leave applied successfully!', type: 'success' });
         setReason('');
         setSelectedOptionalHoliday('');
+        setSelectedMandatoryHoliday('');
+        setSelectedCustomHoliday('');
         fetchUserData(user.id);
       } else {
         setMessage({ text: data.error || data.detail || 'Failed to apply leave', type: 'error' });
@@ -185,12 +210,24 @@ export default function TrainerLeavesPage() {
     }
   };
 
-  const handleSelectHolidayFromCard = (hDate: string, hName: string) => {
-    setLeaveType('optional_holiday');
-    setSelectedOptionalHoliday(hDate);
+  const handleSelectHolidayFromCard = (
+    hDate: string,
+    hName: string,
+    type: 'optional' | 'mandatory' | 'custom' = 'optional'
+  ) => {
+    if (type === 'mandatory') {
+      setLeaveType('mandatory_holiday');
+      setSelectedMandatoryHoliday(hDate);
+    } else if (type === 'custom') {
+      setLeaveType('custom');
+      setSelectedCustomHoliday(hDate);
+    } else {
+      setLeaveType('optional_holiday');
+      setSelectedOptionalHoliday(hDate);
+    }
     setStartDate(hDate);
     setEndDate(hDate);
-    setReason(`Optional holiday for ${hName}`);
+    setReason(`${type === 'mandatory' ? 'Mandatory Holiday' : type === 'custom' ? 'Custom Admin Leave' : 'Optional Holiday'} for ${hName}`);
     // Scroll to form smoothly
     const formElem = document.getElementById('leave-application-form');
     if (formElem) {
@@ -210,6 +247,8 @@ export default function TrainerLeavesPage() {
   const sickTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'sick').length;
   const weekoffsTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'weekoff').length;
   const optionalTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'optional_holiday').length;
+  const mandatoryTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'mandatory_holiday').length;
+  const customTakenTotal = approvedLeavesCount.filter((l) => l.leave_type === 'custom').length;
 
   // Real quotas and available balances
   const casualSickQuota = balance?.casual_sick_quota ?? 12;
@@ -219,6 +258,8 @@ export default function TrainerLeavesPage() {
   const optionalQuota = balance?.optional_holiday_quota ?? 5;
   const optionalUsed = balance?.optional_holiday_used ?? optionalTakenTotal;
   const optionalAvailable = Math.max(0, optionalQuota - optionalUsed);
+
+  const mandatoryCount = mandatoryHolidaysList.length;
 
   if (!user) return null;
 
@@ -342,245 +383,467 @@ export default function TrainerLeavesPage() {
         </div>
       </div>
 
-      {/* ── 4 Rich Leave Balance Cards Showing ALL Leave Types ────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* ── 5 Rich Leave Balance Cards Showing ALL Leave Types ────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Casual Leave */}
-        <div className="rounded-2xl p-5 bg-white border border-teal-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-teal-50/40">
-          <div className="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center gap-1.5"><Coffee className="h-4 w-4 text-teal-600" /> Casual Leaves</span>
-            <span className="text-[10px] bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-extrabold">1/Month Rule</span>
+        <div className="rounded-2xl p-4 bg-white border border-teal-200/80 shadow-sm space-y-1 bg-gradient-to-br from-white to-teal-50/40">
+          <div className="text-[11px] font-bold text-teal-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Coffee className="h-3.5 w-3.5 text-teal-600" /> Casual</span>
+            <span className="text-[9px] bg-teal-100 text-teal-800 px-1.5 py-0.5 rounded-full font-extrabold">1/Mo</span>
           </div>
-          <div className="text-3xl font-extrabold font-mono text-teal-900">
-            {casualSickAvailable} / {casualSickQuota} <span className="text-sm font-medium text-teal-600 font-sans">Left</span>
+          <div className="text-2xl font-extrabold font-mono text-teal-900">
+            {casualSickAvailable} / {casualSickQuota} <span className="text-xs font-medium text-teal-600 font-sans">Left</span>
           </div>
-          <p className="text-xs text-teal-700/80 font-medium">
-            This Month: <strong className="text-teal-900">{casualLeavesUsedThisMonth} / 1 Used</strong> ({casualTakenTotal} taken total)
+          <p className="text-[11px] text-teal-700/80 font-medium truncate">
+            Month: <strong className="text-teal-900">{casualLeavesUsedThisMonth}/1</strong> ({casualTakenTotal} total)
           </p>
         </div>
 
         {/* Card 2: Sick / Medical Leave */}
-        <div className="rounded-2xl p-5 bg-white border border-rose-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-rose-50/40">
-          <div className="text-xs font-bold text-rose-700 uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center gap-1.5"><HeartPulse className="h-4 w-4 text-rose-600" /> Sick / Medical</span>
-            <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-extrabold">Health Rest</span>
+        <div className="rounded-2xl p-4 bg-white border border-rose-200/80 shadow-sm space-y-1 bg-gradient-to-br from-white to-rose-50/40">
+          <div className="text-[11px] font-bold text-rose-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><HeartPulse className="h-3.5 w-3.5 text-rose-600" /> Medical</span>
+            <span className="text-[9px] bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded-full font-extrabold">Health</span>
           </div>
-          <div className="text-3xl font-extrabold font-mono text-rose-900">
-            {sickTakenTotal} <span className="text-sm font-medium text-rose-600 font-sans">Days Used</span>
+          <div className="text-2xl font-extrabold font-mono text-rose-900">
+            {sickTakenTotal} <span className="text-xs font-medium text-rose-600 font-sans">Used</span>
           </div>
-          <p className="text-xs text-rose-700/80 font-medium">
-            Medical recuperation days recorded for wellness
+          <p className="text-[11px] text-rose-700/80 font-medium truncate">
+            Medical recuperation days
           </p>
         </div>
 
-        {/* Card 3: Optional Holidays */}
-        <div className="rounded-2xl p-5 bg-white border border-amber-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-amber-50/40">
-          <div className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center gap-1.5"><Sun className="h-4 w-4 text-amber-600" /> Optional Holidays</span>
-            <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-extrabold">2026 Calendar</span>
+        {/* Card 3: Mandatory Holidays */}
+        <div className="rounded-2xl p-4 bg-white border border-indigo-200/80 shadow-sm space-y-1 bg-gradient-to-br from-white to-indigo-50/40">
+          <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-indigo-600" /> Mandatory</span>
+            <span className="text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-extrabold">Official Off</span>
           </div>
-          <div className="text-3xl font-extrabold font-mono text-amber-600">
-            {optionalAvailable} / {optionalQuota} <span className="text-sm font-medium text-amber-500 font-sans">Available</span>
+          <div className="text-2xl font-extrabold font-mono text-indigo-900">
+            {mandatoryCount} <span className="text-xs font-medium text-indigo-600 font-sans">Days</span>
           </div>
-          <p className="text-xs text-amber-700/80 font-medium">
-            {optionalUsed} / {optionalQuota} festivals taken from official list
+          <p className="text-[11px] text-indigo-700/80 font-medium truncate">
+            Compulsory paid company holidays
           </p>
         </div>
 
-        {/* Card 4: Week Offs */}
-        <div className="rounded-2xl p-5 bg-white border border-indigo-200/80 shadow-sm space-y-1.5 bg-gradient-to-br from-white to-indigo-50/40">
-          <div className="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center justify-between">
-            <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-indigo-600" /> Weekly Offs</span>
-            <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-extrabold">Weekly Rest</span>
+        {/* Card 4: Optional Holidays */}
+        <div className="rounded-2xl p-4 bg-white border border-amber-200/80 shadow-sm space-y-1 bg-gradient-to-br from-white to-amber-50/40">
+          <div className="text-[11px] font-bold text-amber-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><Sun className="h-3.5 w-3.5 text-amber-600" /> Optional</span>
+            <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-extrabold">Festivals</span>
           </div>
-          <div className="text-3xl font-extrabold font-mono text-indigo-900">
-            {weekoffsTakenTotal} <span className="text-sm font-medium text-indigo-600 font-sans">Approved</span>
+          <div className="text-2xl font-extrabold font-mono text-amber-600">
+            {optionalAvailable} / {optionalQuota} <span className="text-xs font-medium text-amber-500 font-sans">Left</span>
           </div>
-          <p className="text-xs text-indigo-700/80 font-medium">
-            Regular scheduled rest days approved
+          <p className="text-[11px] text-amber-700/80 font-medium truncate">
+            {optionalUsed} / {optionalQuota} festivals taken
+          </p>
+        </div>
+
+        {/* Card 5: Week Offs */}
+        <div className="rounded-2xl p-4 bg-white border border-slate-200 shadow-sm space-y-1 bg-gradient-to-br from-white to-slate-50/50">
+          <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+            <span className="flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-slate-600" /> Week Offs</span>
+            <span className="text-[9px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded-full font-extrabold">Weekly</span>
+          </div>
+          <div className="text-2xl font-extrabold font-mono text-slate-900">
+            {weekoffsTakenTotal} <span className="text-xs font-medium text-slate-600 font-sans">Approved</span>
+          </div>
+          <p className="text-[11px] text-slate-600 font-medium truncate">
+            Scheduled rest days approved
           </p>
         </div>
       </div>
 
-      {/* ── 2026 Optional Holidays Interactive Hub ────────────────────────────────────────── */}
-      <div className="rounded-3xl p-6 bg-white border border-amber-200/90 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-amber-100">
+      {/* ── Official Holidays & Rest Portal (Mandatory + Optional + Custom) ────────────────── */}
+      <div className="rounded-3xl p-6 bg-white border border-slate-200/90 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
-              <Sun className="h-5 w-5 text-amber-500" /> Official 2026 Optional Festival Holidays
+              <Calendar className="h-5 w-5 text-indigo-600" /> Company Holiday Calendar & Official Leaves
             </h2>
             <p className="text-xs text-slate-500 font-medium">
-              You are entitled to pick any {optionalQuota} festival holidays. Click "Select & Apply" to instantly request one.
+              View mandatory public holidays, optional festival pool, and admin announced leaves. Click any card to apply or view status.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-extrabold text-xs">
-              {optionalAvailable} of {optionalQuota} Available
-            </span>
+
+          {/* Category Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setHolidayTab('mandatory')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                holidayTab === 'mandatory'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🏛️ Mandatory ({mandatoryHolidaysList.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setHolidayTab('optional')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                holidayTab === 'optional'
+                  ? 'bg-white text-amber-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ✨ Optional ({optionalHolidaysList.length})
+            </button>
+            {customHolidaysList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setHolidayTab('custom')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                  holidayTab === 'custom'
+                    ? 'bg-white text-purple-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                🌟 Admin Leaves ({customHolidaysList.length})
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {optionalHolidaysList.map((h: any) => {
-            const leaveMatch = leaves.find((l) => l.start_date === h.date && l.leave_type === 'optional_holiday');
-            const isApproved = leaveMatch?.status === 'approved';
-            const isPending = leaveMatch?.status === 'pending';
+        {/* Tab 1: Mandatory Holidays */}
+        {holidayTab === 'mandatory' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600">
+                Official compulsory paid holidays scheduled for all faculty and staff.
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-800 text-[10px] font-extrabold">
+                {mandatoryHolidaysList.length} Compulsory Days
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {mandatoryHolidaysList.map((h: any) => {
+                const leaveMatch = leaves.find((l) => l.start_date === h.date && l.leave_type === 'mandatory_holiday');
+                const isApproved = leaveMatch?.status === 'approved';
+                const isPending = leaveMatch?.status === 'pending';
 
-            return (
-              <div
-                key={h.date}
-                className={`p-4 rounded-2xl border transition-all space-y-2 flex flex-col justify-between ${
-                  isApproved
-                    ? 'bg-emerald-50/60 border-emerald-300'
-                    : isPending
-                    ? 'bg-amber-50/60 border-amber-300'
-                    : 'bg-slate-50/70 border-slate-200 hover:border-amber-400 hover:shadow-xs'
-                }`}
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono font-bold text-slate-500">📅 {h.date}</span>
-                    {isApproved ? (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-100 text-emerald-800">
-                        Availed
-                      </span>
-                    ) : isPending ? (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 text-amber-800">
-                        Pending
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                        Available
-                      </span>
-                    )}
-                  </div>
-                  <h4 className="font-extrabold text-xs text-slate-900 leading-snug">{h.name}</h4>
-                </div>
-
-                <div className="pt-2">
-                  {isApproved || isPending ? (
-                    <div className="text-[11px] font-bold text-slate-500 italic flex items-center gap-1">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Application Filed
+                return (
+                  <div
+                    key={h.date}
+                    className={`p-4 rounded-2xl border transition-all space-y-2 flex flex-col justify-between ${
+                      isApproved
+                        ? 'bg-emerald-50/60 border-emerald-300'
+                        : isPending
+                        ? 'bg-amber-50/60 border-amber-300'
+                        : 'bg-indigo-50/30 border-indigo-200 hover:border-indigo-400 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono font-bold text-slate-500">📅 {h.date}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-100 text-indigo-800">
+                          Mandatory
+                        </span>
+                      </div>
+                      <h4 className="font-extrabold text-xs text-slate-900 leading-snug">{h.name}</h4>
+                      {h.description && <p className="text-[10px] text-slate-500 italic">{h.description}</p>}
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectHolidayFromCard(h.date, h.name)}
-                      className="w-full py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] shadow-xs cursor-pointer transition-colors"
-                    >
-                      Select & Apply →
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
-        {message && (
-          <div
-            className={`p-4 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-xs ${
-              message.type === 'success'
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                : 'bg-rose-50 border-rose-300 text-rose-800'
-            }`}
-          >
-            {message.type === 'success' ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-            ) : (
-              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
-            )}
-            {message.text}
+                    <div className="pt-2">
+                      {isApproved || isPending ? (
+                        <div className="text-[11px] font-bold text-slate-600 italic flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          {isApproved ? 'Recorded in Profile' : 'Pending Review'}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectHolidayFromCard(h.date, h.name, 'mandatory')}
+                          className="w-full py-1.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] shadow-xs cursor-pointer transition-colors"
+                        >
+                          Select & File →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div id="leave-application-form" className="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xs space-y-4">
-            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
-              <Plus className="h-4 w-4 text-indigo-600" /> Submit Leave Application
-            </h3>
+        {/* Tab 2: Optional Festival Holidays */}
+        {holidayTab === 'optional' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600">
+                You are entitled to pick any {optionalQuota} festival holidays. Click "Select & Apply" to request one.
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-900 text-[10px] font-extrabold">
+                {optionalAvailable} of {optionalQuota} Available
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {optionalHolidaysList.map((h: any) => {
+                const leaveMatch = leaves.find((l) => l.start_date === h.date && l.leave_type === 'optional_holiday');
+                const isApproved = leaveMatch?.status === 'approved';
+                const isPending = leaveMatch?.status === 'pending';
 
-            <form onSubmit={handleApplyLeave} className="space-y-4 text-xs">
+                return (
+                  <div
+                    key={h.date}
+                    className={`p-4 rounded-2xl border transition-all space-y-2 flex flex-col justify-between ${
+                      isApproved
+                        ? 'bg-emerald-50/60 border-emerald-300'
+                        : isPending
+                        ? 'bg-amber-50/60 border-amber-300'
+                        : 'bg-slate-50/70 border-slate-200 hover:border-amber-400 hover:shadow-xs'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono font-bold text-slate-500">📅 {h.date}</span>
+                        {isApproved ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-100 text-emerald-800">
+                            Availed
+                          </span>
+                        ) : isPending ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 text-amber-800">
+                            Pending
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+                            Available
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="font-extrabold text-xs text-slate-900 leading-snug">{h.name}</h4>
+                    </div>
+
+                    <div className="pt-2">
+                      {isApproved || isPending ? (
+                        <div className="text-[11px] font-bold text-slate-500 italic flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Application Filed
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectHolidayFromCard(h.date, h.name, 'optional')}
+                          className="w-full py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-[11px] shadow-xs cursor-pointer transition-colors"
+                        >
+                          Select & Apply →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Custom & Special Admin Leaves */}
+        {holidayTab === 'custom' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-purple-700">
+                Special holidays and custom rest days declared by administration.
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 text-[10px] font-extrabold">
+                {customHolidaysList.length} Special Leaves
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {customHolidaysList.map((h: any) => {
+                const leaveMatch = leaves.find((l) => l.start_date === h.date && l.leave_type === 'custom');
+                const isApproved = leaveMatch?.status === 'approved';
+                const isPending = leaveMatch?.status === 'pending';
+
+                return (
+                  <div
+                    key={h.date + h.name}
+                    className="p-4 rounded-2xl border border-purple-200 bg-purple-50/40 space-y-2 flex flex-col justify-between"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono font-bold text-purple-700">📅 {h.date}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-purple-100 text-purple-800">
+                          🌟 Admin Leave
+                        </span>
+                      </div>
+                      <h4 className="font-extrabold text-xs text-slate-900 leading-snug">{h.name}</h4>
+                      {h.description && <p className="text-[11px] text-slate-600 italic">{h.description}</p>}
+                    </div>
+
+                    <div className="pt-2">
+                      {isApproved || isPending ? (
+                        <div className="text-[11px] font-bold text-slate-600 italic flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Application Filed
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectHolidayFromCard(h.date, h.name, 'custom')}
+                          className="w-full py-1.5 px-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-[11px] shadow-xs cursor-pointer transition-colors"
+                        >
+                          Select & Apply →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {message && (
+        <div
+          className={`p-4 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-xs ${
+            message.type === 'success'
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+              : 'bg-rose-50 border-rose-300 text-rose-800'
+          }`}
+        >
+          {message.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+          )}
+          {message.text}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="leave-application-form" className="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xs space-y-4">
+          <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
+            <Plus className="h-4 w-4 text-indigo-600" /> Submit Leave Application
+          </h3>
+
+          <form onSubmit={handleApplyLeave} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-slate-700 font-bold mb-1.5">Leave Type</label>
+              <select
+                value={leaveType}
+                onChange={(e) => handleLeaveTypeChange(e.target.value as any)}
+                className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all cursor-pointer"
+              >
+                <option value="casual">Casual Leave (1/month) — {casualSickAvailable}/{casualSickQuota} Left</option>
+                <option value="sick">Sick / Medical Leave</option>
+                <option value="emergency">Emergency Leave</option>
+                <option value="mandatory_holiday">🏛️ Mandatory Holiday (Compulsory Calendar Off)</option>
+                <option value="optional_holiday">✨ Optional Holiday (Festival Pool) — {optionalAvailable}/{optionalQuota} Available</option>
+                {customHolidaysList.length > 0 && (
+                  <option value="custom">🌟 Special / Custom Admin Announced Leave</option>
+                )}
+                <option value="weekoff">Week Off</option>
+              </select>
+            </div>
+
+            {leaveType === 'optional_holiday' ? (
               <div>
-                <label className="block text-slate-700 font-bold mb-1.5">Leave Type</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 font-bold">Select 2026 Optional Holiday</label>
+                  <span className="text-[11px] font-extrabold text-amber-700">{optionalAvailable} of {optionalQuota} Available</span>
+                </div>
                 <select
-                  value={leaveType}
-                  onChange={(e) => handleLeaveTypeChange(e.target.value as any)}
-                  className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all cursor-pointer"
+                  required
+                  value={selectedOptionalHoliday}
+                  onChange={(e) => setSelectedOptionalHoliday(e.target.value)}
+                  className="w-full rounded-xl bg-amber-50/50 border border-amber-300 px-3.5 py-2.5 text-amber-900 font-semibold focus:border-amber-500 focus:outline-none transition-all cursor-pointer"
                 >
-                  <option value="casual">Casual Leave (1/month) — {casualSickAvailable}/{casualSickQuota} Left</option>
-                  <option value="sick">Sick / Medical Leave</option>
-                  <option value="emergency">Emergency Leave</option>
-                  <option value="optional_holiday">Optional Holiday (2026 Calendar) — {optionalAvailable}/{optionalQuota} Available</option>
-                  <option value="weekoff">Week Off</option>
+                  <option value="">-- Choose 2026 Festival / Holiday --</option>
+                  {optionalHolidaysList.map((h: any) => (
+                    <option key={h.date} value={h.date}>
+                      {h.name} ({h.date})
+                    </option>
+                  ))}
                 </select>
               </div>
-
-              {leaveType === 'optional_holiday' ? (
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-slate-700 font-bold">Select 2026 Optional Holiday</label>
-                    <span className="text-[11px] font-extrabold text-amber-700">{optionalAvailable} of {optionalQuota} Available</span>
-                  </div>
-                  <select
-                    required
-                    value={selectedOptionalHoliday}
-                    onChange={(e) => setSelectedOptionalHoliday(e.target.value)}
-                    className="w-full rounded-xl bg-amber-50/50 border border-amber-300 px-3.5 py-2.5 text-amber-900 font-semibold focus:border-amber-500 focus:outline-none transition-all cursor-pointer"
-                  >
-                    <option value="">-- Choose 2026 Festival / Holiday --</option>
-                    {optionalHolidaysList.map((h: any) => (
-                      <option key={h.date} value={h.date}>
-                        {h.name} ({h.date})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1.5">From Date</label>
-                    <input
-                      type="date"
-                      required
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-700 font-bold mb-1.5">To Date</label>
-                    <input
-                      type="date"
-                      required
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
-                    />
-                  </div>
-                </div>
-              )}
-
+            ) : leaveType === 'mandatory_holiday' ? (
               <div>
-                <label className="block text-slate-700 font-bold mb-1.5">Reason for Leave</label>
-                <textarea
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 font-bold">Select Mandatory Company Holiday</label>
+                  <span className="text-[11px] font-extrabold text-indigo-700">Official Paid Off</span>
+                </div>
+                <select
                   required
-                  rows={3}
-                  placeholder="Brief explanation for administration..."
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  className="w-full rounded-xl bg-slate-50 border border-slate-300 p-3 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
-                />
+                  value={selectedMandatoryHoliday}
+                  onChange={(e) => setSelectedMandatoryHoliday(e.target.value)}
+                  className="w-full rounded-xl bg-indigo-50/50 border border-indigo-300 px-3.5 py-2.5 text-indigo-900 font-semibold focus:border-indigo-500 focus:outline-none transition-all cursor-pointer"
+                >
+                  <option value="">-- Choose Mandatory Holiday --</option>
+                  {mandatoryHolidaysList.map((h: any) => (
+                    <option key={h.date} value={h.date}>
+                      🏛️ {h.name} ({h.date})
+                    </option>
+                  ))}
+                </select>
               </div>
+            ) : leaveType === 'custom' ? (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 font-bold">Select Admin Special Leave</label>
+                  <span className="text-[11px] font-extrabold text-purple-700">Admin Declared</span>
+                </div>
+                <select
+                  required
+                  value={selectedCustomHoliday}
+                  onChange={(e) => setSelectedCustomHoliday(e.target.value)}
+                  className="w-full rounded-xl bg-purple-50/50 border border-purple-300 px-3.5 py-2.5 text-purple-900 font-semibold focus:border-purple-500 focus:outline-none transition-all cursor-pointer"
+                >
+                  <option value="">-- Choose Special Admin Leave --</option>
+                  {customHolidaysList.map((h: any) => (
+                    <option key={h.date} value={h.date}>
+                      🌟 {h.name} ({h.date}){h.description ? ` - ${h.description}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1.5">From Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1.5">To Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full rounded-xl bg-slate-50 border border-slate-300 px-3.5 py-2.5 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
+                  />
+                </div>
+              </div>
+            )}
 
-              <button
-                type="submit"
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-extrabold text-xs shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
-              >
-                Submit Application
-              </button>
-            </form>
-          </div>
+            <div>
+              <label className="block text-slate-700 font-bold mb-1.5">Reason for Leave</label>
+              <textarea
+                required
+                rows={3}
+                placeholder="Brief explanation for administration..."
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                className="w-full rounded-xl bg-slate-50 border border-slate-300 p-3 text-slate-900 font-medium focus:border-indigo-600 focus:outline-none transition-all"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-extrabold text-xs shadow-md shadow-indigo-500/20 transition-all cursor-pointer"
+            >
+              Submit Application
+            </button>
+          </form>
+        </div>
 
           <div className="rounded-2xl p-6 bg-white border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2 pb-3 border-b border-slate-100">
