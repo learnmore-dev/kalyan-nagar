@@ -1055,69 +1055,66 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
 def sync_trainer_balance(trainer_id_val):
     if not trainer_id_val:
         return None
-    trainer = (
-        UserProfile.objects.filter(id=str(trainer_id_val)).first()
-        or UserProfile.objects.filter(username=str(trainer_id_val)).first()
-        or UserProfile.objects.filter(email=str(trainer_id_val)).first()
-    )
-    if not trainer:
-        return None
-
-    balance, _ = TrainerLeaveBalance.objects.get_or_create(
-        trainer=trainer,
-        defaults={
-            'trainer_name': trainer.name,
-            'casual_sick_quota': 12,
-            'casual_sick_used': 0,
-            'optional_holiday_quota': 5,
-            'optional_holiday_used': 0,
-            'mandatory_holiday_count': 5,
-        }
-    )
-
-    from datetime import datetime
-    approved_leaves = Leave.objects.filter(
-        Q(trainer_id=str(trainer.id)) | Q(trainer=trainer),
-        status='approved'
-    )
-
-    casual_days = 0
-    sick_days = 0
-    emergency_days = 0
-    optional_days = 0
-    mandatory_days = 0
-
-    for l in approved_leaves:
-        days = 1
-        try:
-            if l.start_date and l.end_date:
-                s = datetime.strptime(str(l.start_date).strip(), '%Y-%m-%d')
-                e = datetime.strptime(str(l.end_date).strip(), '%Y-%m-%d')
-                days = max(1, (e - s).days + 1)
-        except Exception:
-            days = 1
-
-        if l.leave_type == 'optional_holiday':
-            optional_days += days
-        elif l.leave_type == 'mandatory_holiday':
-            mandatory_days += days
-        elif l.leave_type == 'casual':
-            casual_days += days
-        elif l.leave_type == 'sick':
-            sick_days += days
-        elif l.leave_type == 'emergency':
-            emergency_days += days
-
-    total_cs_used = casual_days + sick_days + emergency_days
-    balance.casual_sick_used = total_cs_used
-    balance.optional_holiday_used = optional_days
     try:
-        balance.mandatory_holiday_used = mandatory_days
-    except Exception:
-        pass
-    balance.trainer_name = trainer.name
-    balance.save()
-    return balance
+        trainer = (
+            UserProfile.objects.filter(id=str(trainer_id_val)).first()
+            or UserProfile.objects.filter(username=str(trainer_id_val)).first()
+            or UserProfile.objects.filter(email=str(trainer_id_val)).first()
+        )
+        if not trainer:
+            return None
+
+        balance, _ = TrainerLeaveBalance.objects.get_or_create(
+            trainer=trainer,
+            defaults={
+                'trainer_name': trainer.name,
+                'casual_sick_quota': 12,
+                'casual_sick_used': 0,
+                'optional_holiday_quota': 5,
+                'optional_holiday_used': 0,
+                'mandatory_holiday_count': 5,
+            }
+        )
+
+        from datetime import datetime
+        approved_leaves = Leave.objects.filter(
+            Q(trainer_id=str(trainer.id)) | Q(trainer=trainer),
+            status='approved'
+        )
+
+        casual_days = 0
+        sick_days = 0
+        emergency_days = 0
+        optional_days = 0
+
+        for l in approved_leaves:
+            days = 1
+            try:
+                if l.start_date and l.end_date:
+                    s = datetime.strptime(str(l.start_date).strip(), '%Y-%m-%d')
+                    e = datetime.strptime(str(l.end_date).strip(), '%Y-%m-%d')
+                    days = max(1, (e - s).days + 1)
+            except Exception:
+                days = 1
+
+            if l.leave_type == 'optional_holiday':
+                optional_days += days
+            elif l.leave_type == 'casual':
+                casual_days += days
+            elif l.leave_type == 'sick':
+                sick_days += days
+            elif l.leave_type == 'emergency':
+                emergency_days += days
+
+        total_cs_used = casual_days + sick_days + emergency_days
+        balance.casual_sick_used = total_cs_used
+        balance.optional_holiday_used = optional_days
+        balance.trainer_name = trainer.name
+        balance.save()
+        return balance
+    except Exception as e:
+        print(f"[SYNC_TRAINER_BALANCE ERROR]: {e}")
+        return None
 
 
 class LeaveViewSet(viewsets.ModelViewSet):
@@ -1220,28 +1217,35 @@ class LeaveViewSet(viewsets.ModelViewSet):
     def adjust(self, request):
         """GET: return all trainer leave balances. POST: adjust a trainer's quota or balance."""
         if request.method == 'GET':
-            specific_trainer_id = request.query_params.get('trainer_id')
-            if specific_trainer_id:
-                sync_trainer_balance(specific_trainer_id)
-                t_obj = UserProfile.objects.filter(id=specific_trainer_id).first() or UserProfile.objects.filter(username=specific_trainer_id).first()
-                if t_obj:
-                    bal, _ = TrainerLeaveBalance.objects.get_or_create(
-                        trainer=t_obj,
-                        defaults={'trainer_name': t_obj.name, 'casual_sick_quota': 12, 'casual_sick_used': 0, 'optional_holiday_quota': 5, 'optional_holiday_used': 0}
-                    )
-                    ser = TrainerLeaveBalanceSerializer(bal)
-                    return Response({'success': True, 'balance': ser.data, 'balances': [ser.data]})
+            try:
+                specific_trainer_id = request.query_params.get('trainer_id')
+                if specific_trainer_id:
+                    sync_trainer_balance(specific_trainer_id)
+                    t_obj = UserProfile.objects.filter(id=specific_trainer_id).first() or UserProfile.objects.filter(username=specific_trainer_id).first()
+                    if t_obj:
+                        bal, _ = TrainerLeaveBalance.objects.get_or_create(
+                            trainer=t_obj,
+                            defaults={'trainer_name': t_obj.name, 'casual_sick_quota': 12, 'casual_sick_used': 0, 'optional_holiday_quota': 5, 'optional_holiday_used': 0}
+                        )
+                        ser = TrainerLeaveBalanceSerializer(bal)
+                        return Response({'success': True, 'balance': ser.data, 'balances': [ser.data]})
 
-            # Sync all trainers so approved leaves are accurately deducted
-            trainers = UserProfile.objects.filter(role='trainer')
-            for t in trainers:
-                sync_trainer_balance(t.id)
+                # Sync all trainers so approved leaves are accurately deducted
+                trainers = UserProfile.objects.filter(role='trainer')
+                for t in trainers:
+                    try:
+                        sync_trainer_balance(t.id)
+                    except Exception:
+                        pass
 
-            balances = TrainerLeaveBalance.objects.select_related('trainer').all()
-            serializer = TrainerLeaveBalanceSerializer(balances, many=True)
-            audit_logs = LeaveAuditLog.objects.all().order_by('-created_at')[:100]
-            audit_serializer = LeaveAuditLogSerializer(audit_logs, many=True)
-            return Response({'success': True, 'balances': serializer.data, 'auditLogs': audit_serializer.data})
+                balances = TrainerLeaveBalance.objects.select_related('trainer').all()
+                serializer = TrainerLeaveBalanceSerializer(balances, many=True)
+                audit_logs = LeaveAuditLog.objects.all().order_by('-created_at')[:100]
+                audit_serializer = LeaveAuditLogSerializer(audit_logs, many=True)
+                return Response({'success': True, 'balances': serializer.data, 'auditLogs': audit_serializer.data})
+            except Exception as e:
+                print(f"[LEAVES ADJUST GET ERROR]: {e}")
+                return Response({'success': True, 'balances': [], 'auditLogs': []})
 
         # POST — adjust quota or deduct leave
         trainer_id = request.data.get('trainer_id')

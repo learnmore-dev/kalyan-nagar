@@ -219,7 +219,6 @@ class TrainerLeaveBalance(models.Model):
     optional_holiday_quota = models.IntegerField(default=5)
     optional_holiday_used = models.IntegerField(default=0)
     mandatory_holiday_count = models.IntegerField(default=5)
-    mandatory_holiday_used = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.trainer_name} Leave Balance"

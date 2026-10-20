@@ -193,66 +193,105 @@ export default function AdminHolidaysPage() {
     }
   };
 
-  const addMandatoryHoliday = () => {
-    if (!newMandatory.name || !newMandatory.date) return;
-    setConfig((prev) => ({
-      ...prev,
-      mandatory_holidays: [
-        ...(prev?.mandatory_holidays || []),
-        { name: newMandatory.name, date: newMandatory.date, type: 'mandatory' },
-      ],
-    }));
+  const persistConfig = async (newConfig: HolidayConfig, successMsg: string) => {
+    setConfig(newConfig);
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/holidays/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newConfig),
+      });
+      const data = await res.json();
+      if (data && (data.success || data.id || data.message)) {
+        setMessage({ text: successMsg, type: 'success' });
+        fetchHolidayConfig();
+      } else {
+        setMessage({ text: data?.error || 'Failed to save to database', type: 'error' });
+      }
+    } catch (err: any) {
+      setMessage({ text: err.message || 'Network error while saving', type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addMandatoryHoliday = async () => {
+    if (!newMandatory.name || !newMandatory.date) {
+      setMessage({ text: 'Please provide both holiday name and date.', type: 'error' });
+      return;
+    }
+    const item = { name: newMandatory.name.trim(), date: newMandatory.date, type: 'mandatory' as const };
+    const updated = {
+      ...config,
+      mandatory_holidays: [...(config?.mandatory_holidays || []), item],
+    };
+    const holidayName = newMandatory.name.trim();
     setNewMandatory({ name: '', date: '' });
+    await persistConfig(updated, `✓ Added "${holidayName}" to Mandatory Holidays! Saved to database and live for all users.`);
   };
 
-  const removeMandatoryHoliday = (index: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      mandatory_holidays: (prev?.mandatory_holidays || []).filter((_, i) => i !== index),
-    }));
+  const removeMandatoryHoliday = async (index: number) => {
+    const target = config?.mandatory_holidays?.[index];
+    const updated = {
+      ...config,
+      mandatory_holidays: (config?.mandatory_holidays || []).filter((_, i) => i !== index),
+    };
+    await persistConfig(updated, `✓ Removed "${target?.name || 'holiday'}" from Mandatory Holidays.`);
   };
 
-  const addOptionalHoliday = () => {
-    if (!newOptional.name || !newOptional.date) return;
-    setConfig((prev) => ({
-      ...prev,
-      optional_holidays: [
-        ...(prev?.optional_holidays || []),
-        { name: newOptional.name, date: newOptional.date, type: 'optional' },
-      ],
-    }));
+  const addOptionalHoliday = async () => {
+    if (!newOptional.name || !newOptional.date) {
+      setMessage({ text: 'Please provide both optional festival name and date.', type: 'error' });
+      return;
+    }
+    const item = { name: newOptional.name.trim(), date: newOptional.date, type: 'optional' as const };
+    const updated = {
+      ...config,
+      optional_holidays: [...(config?.optional_holidays || []), item],
+    };
+    const holidayName = newOptional.name.trim();
     setNewOptional({ name: '', date: '' });
+    await persistConfig(updated, `✓ Added "${holidayName}" to Optional Holidays! Saved to database and live for all users.`);
   };
 
-  const removeOptionalHoliday = (index: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      optional_holidays: (prev?.optional_holidays || []).filter((_, i) => i !== index),
-    }));
+  const removeOptionalHoliday = async (index: number) => {
+    const target = config?.optional_holidays?.[index];
+    const updated = {
+      ...config,
+      optional_holidays: (config?.optional_holidays || []).filter((_, i) => i !== index),
+    };
+    await persistConfig(updated, `✓ Removed "${target?.name || 'holiday'}" from Optional Holidays.`);
   };
 
-  const addCustomHoliday = () => {
-    if (!newCustom.name || !newCustom.date) return;
-    setConfig((prev) => ({
-      ...prev,
-      custom_holidays: [
-        ...(prev?.custom_holidays || []),
-        {
-          name: newCustom.name,
-          date: newCustom.date,
-          type: newCustom.type || 'custom',
-          description: newCustom.description || '',
-        },
-      ],
-    }));
+  const addCustomHoliday = async () => {
+    if (!newCustom.name || !newCustom.date) {
+      setMessage({ text: 'Please provide both title and date for custom leave.', type: 'error' });
+      return;
+    }
+    const item = {
+      name: newCustom.name.trim(),
+      date: newCustom.date,
+      type: newCustom.type || 'custom',
+      description: newCustom.description?.trim() || '',
+    };
+    const updated = {
+      ...config,
+      custom_holidays: [...(config?.custom_holidays || []), item],
+    };
+    const leaveName = newCustom.name.trim();
     setNewCustom({ name: '', date: '', type: 'custom', description: '' });
+    await persistConfig(updated, `✓ Created Custom Leave "${leaveName}"! Saved to database and immediately visible to all users.`);
   };
 
-  const removeCustomHoliday = (index: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      custom_holidays: (prev?.custom_holidays || []).filter((_, i) => i !== index),
-    }));
+  const removeCustomHoliday = async (index: number) => {
+    const target = config?.custom_holidays?.[index];
+    const updated = {
+      ...config,
+      custom_holidays: (config?.custom_holidays || []).filter((_, i) => i !== index),
+    };
+    await persistConfig(updated, `✓ Removed Custom Leave "${target?.name || 'leave'}".`);
   };
 
   const mandatoryList = config?.mandatory_holidays || [];

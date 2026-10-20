@@ -45,23 +45,48 @@ export default function AdminLeavesPage() {
   const [adjustLoading, setAdjustLoading] = useState(false);
 
   const fetchLeavesData = async () => {
+    // 1. Fetch Leaves independently
     try {
-      const [lRes, uRes, bRes] = await Promise.all([
-        fetch('/api/leaves/'),
-        fetch('/api/users/?role=trainer'),
-        fetch('/api/leaves/adjust/'),
-      ]);
-      const lData = await lRes.json();
-      const uData = await uRes.json();
-      const bData = await bRes.json();
-      if (lData.success) setLeaves(lData.leaves || []);
-      if (uData.success) setTrainers(uData.users || []);
-      if (bData.success) {
-        setBalances(bData.balances || []);
-        setAuditLogs(bData.auditLogs || []);
+      const lRes = await fetch('/api/leaves/');
+      if (lRes.ok) {
+        const lData = await lRes.json();
+        if (lData?.success && Array.isArray(lData.leaves)) {
+          setLeaves(lData.leaves);
+        } else if (Array.isArray(lData)) {
+          setLeaves(lData);
+        }
       }
-    } catch {
-      // silent
+    } catch (err) {
+      console.error('Error fetching leaves:', err);
+    }
+
+    // 2. Fetch Trainers independently
+    try {
+      const uRes = await fetch('/api/users/?role=trainer');
+      if (uRes.ok) {
+        const uData = await uRes.json();
+        if (uData?.success && Array.isArray(uData.users)) {
+          setTrainers(uData.users);
+        } else if (Array.isArray(uData)) {
+          setTrainers(uData);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching trainers:', err);
+    }
+
+    // 3. Fetch Balances & Audit Logs independently
+    try {
+      const bRes = await fetch('/api/leaves/adjust/');
+      if (bRes.ok) {
+        const bData = await bRes.json();
+        if (bData?.success) {
+          setBalances(bData.balances || []);
+          setAuditLogs(bData.auditLogs || []);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching balances:', err);
     }
   };
 

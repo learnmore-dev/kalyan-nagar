@@ -92,35 +92,64 @@ export default function TrainerLeavesPage() {
   const [holidayTab, setHolidayTab] = useState<'mandatory' | 'optional' | 'custom'>('mandatory');
 
   const fetchUserData = async (userId: string) => {
+    // 1. Fetch Leaves for trainer
     try {
-      const [lRes, bRes, hRes] = await Promise.all([
-        fetch(`/api/leaves/?trainer_id=${encodeURIComponent(userId)}`),
-        fetch(`/api/leaves/adjust/?trainer_id=${encodeURIComponent(userId)}`),
-        fetch('/api/holidays/'),
-      ]);
-
-      const lData = await lRes.json();
-      if (lData?.success) {
-        setLeaves(lData.leaves || []);
+      const lRes = await fetch(`/api/leaves/?trainer_id=${encodeURIComponent(userId)}`);
+      if (lRes.ok) {
+        const lData = await lRes.json();
+        if (lData?.success && Array.isArray(lData.leaves)) {
+          setLeaves(lData.leaves);
+        } else if (Array.isArray(lData)) {
+          setLeaves(lData);
+        }
       }
+    } catch (err) {
+      console.error('Error fetching trainer leaves:', err);
+    }
 
-      const bData = await bRes.json();
-      if (bData?.success) {
-        const found = bData.balance || (bData.balances && bData.balances.find((b: any) => (b.trainer_id || b.trainer) === userId));
-        if (found) setBalance(found);
+    // 2. Fetch Holidays from server
+    try {
+      const hRes = await fetch('/api/holidays/');
+      if (hRes.ok) {
+        const hData = await hRes.json();
+        if (hData?.success) {
+          if (Array.isArray(hData.holidays)) {
+            const mand = hData.holidays.filter((h: any) => h.type === 'mandatory');
+            const opts = hData.holidays.filter((h: any) => h.type === 'optional');
+            const cust = hData.holidays.filter((h: any) => h.type !== 'mandatory' && h.type !== 'optional');
+            if (mand.length > 0) setMandatoryHolidaysList(mand);
+            if (opts.length > 0) setOptionalHolidaysList(opts);
+            setCustomHolidaysList(cust);
+          }
+          if (hData.holidayConfig) {
+            if (Array.isArray(hData.holidayConfig.mandatory_holidays) && hData.holidayConfig.mandatory_holidays.length > 0) {
+              setMandatoryHolidaysList(hData.holidayConfig.mandatory_holidays);
+            }
+            if (Array.isArray(hData.holidayConfig.optional_holidays) && hData.holidayConfig.optional_holidays.length > 0) {
+              setOptionalHolidaysList(hData.holidayConfig.optional_holidays);
+            }
+            if (Array.isArray(hData.holidayConfig.custom_holidays)) {
+              setCustomHolidaysList(hData.holidayConfig.custom_holidays);
+            }
+          }
+        }
       }
+    } catch (err) {
+      console.error('Error fetching holidays:', err);
+    }
 
-      const hData = await hRes.json();
-      if (hData?.success && Array.isArray(hData.holidays)) {
-        const mand = hData.holidays.filter((h: any) => h.type === 'mandatory');
-        const opts = hData.holidays.filter((h: any) => h.type === 'optional');
-        const cust = hData.holidays.filter((h: any) => h.type !== 'mandatory' && h.type !== 'optional');
-        if (mand.length > 0) setMandatoryHolidaysList(mand);
-        if (opts.length > 0) setOptionalHolidaysList(opts);
-        setCustomHolidaysList(cust);
+    // 3. Fetch Balance
+    try {
+      const bRes = await fetch(`/api/leaves/adjust/?trainer_id=${encodeURIComponent(userId)}`);
+      if (bRes.ok) {
+        const bData = await bRes.json();
+        if (bData?.success) {
+          const found = bData.balance || (bData.balances && bData.balances.find((b: any) => (b.trainer_id || b.trainer) === userId));
+          if (found) setBalance(found);
+        }
       }
-    } catch {
-      // silent fallback
+    } catch (err) {
+      console.error('Error fetching trainer balance:', err);
     }
   };
 
