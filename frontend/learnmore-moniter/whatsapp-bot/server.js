@@ -286,9 +286,12 @@ async function startWhatsApp(triggerReason = 'boot') {
       markOnlineOnConnect: true,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 10000,   // ping every 10s — more aggressive, catches drops faster
+      keepAliveIntervalMs: 10000,
       generateHighQualityLinkPreview: false,
       retryRequestOptions: { maxRetries: 5, delayMs: 2000 },
+      // Prevent Baileys from requesting full message history on reconnect
+      // which causes WhatsApp to think a new session started → conflict
+      getMessage: async () => undefined,
     });
 
     sock = newSock;
@@ -405,11 +408,17 @@ async function startWhatsApp(triggerReason = 'boot') {
         }
 
         // ── Stream conflict: another WhatsApp Web session opened ──
-        // Wait longer before reconnecting to let the other session settle
+        // Wait longer before reconnecting to let the other session settle.
+        // Also clear stale socket to prevent double-connect on group ops.
         if (isConflict) {
-          console.warn(`⚡ [conn-manager:gen#${currentGen}] Stream conflict detected. Waiting 8s then reconnecting...`);
+          console.warn(`⚡ [conn-manager:gen#${currentGen}] Stream conflict. Waiting 12s then reconnecting...`);
           botStatus.status = 'reconnecting';
-          scheduleRestart(8000, 'conflict');
+          // Ensure old socket is fully dead before reconnect
+          if (sock) {
+            try { sock.ev.removeAllListeners(); sock.ws?.close(); } catch (e) {}
+            sock = null;
+          }
+          scheduleRestart(12000, 'conflict');
           return;
         }
 
@@ -721,6 +730,9 @@ const server = http.createServer(async (req, res) => {
       );
     }
 
+    // Helper: small delay between WhatsApp ops to avoid stream conflict
+    const wa_delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
     try {
       const jids = (Array.isArray(participants) ? participants : [])
         .map((p) => {
@@ -734,64 +746,72 @@ const server = http.createServer(async (req, res) => {
         .filter(Boolean);
 
       const uniqueJids = Array.from(new Set(jids));
-      console.log(`Creating group "${name}" with ${uniqueJids.length} participants:`, uniqueJids);
+      console.log(`[create-group] Creating "${name}" with ${uniqueJids.length} participants`);
+
+      // ── Step 1: Create group ──
+      // WhatsApp requires at least 1 participant to create a group.
+      // We try with all, then fall back to first valid one to avoid conflict.
       let group = null;
 
       if (uniqueJids.length > 0) {
         try {
           group = await sock.groupCreate(name || 'New Batch Group', uniqueJids);
-        } catch (errAll) {
-          console.log('groupCreate with all participants failed:', errAll.message);
+        } catch (e) {
+          console.log('[create-group] groupCreate (all) failed:', e.message);
         }
       }
 
+      // Fallback: create with just first participant, add rest after
       if (!group && uniqueJids.length > 0) {
-        for (const pJid of uniqueJids) {
-          try {
-            group = await sock.groupCreate(name || 'New Batch Group', [pJid]);
-            console.log(`Successfully created group using participant ${pJid}`);
-            break;
-          } catch (errSingle) {
-            console.log(`groupCreate with participant ${pJid} failed:`, errSingle.message);
-          }
-        }
-      }
-
-      if (!group && uniqueJids.length >= 2) {
         try {
-          group = await sock.groupCreate(name || 'New Batch Group', uniqueJids.slice(0, 2));
-        } catch (errTwo) {
-          console.log('groupCreate with first 2 participants failed:', errTwo.message);
+          group = await sock.groupCreate(name || 'New Batch Group', [uniqueJids[0]]);
+          console.log('[create-group] Created with first participant only');
+        } catch (e) {
+          console.log('[create-group] groupCreate (single) failed:', e.message);
         }
       }
 
       if (!group) {
-        throw new Error('Could not create WhatsApp group with provided participant numbers. Please verify phone numbers.');
+        throw new Error('Could not create WhatsApp group. Please verify phone numbers are on WhatsApp.');
       }
 
-      const inviteObj = await getGroupInviteLinkWithRetry(group.id, 3);
-      const inviteLink = inviteObj?.link || null;
+      // ── Step 2: Wait before next operation (prevents conflict) ──
+      await wa_delay(3000);
 
+      // ── Step 3: Get invite link ──
+      let inviteLink = null;
+      try {
+        const inviteObj = await getGroupInviteLinkWithRetry(group.id, 2);
+        inviteLink = inviteObj?.link || null;
+      } catch (e) {
+        console.log('[create-group] invite link fetch failed (non-fatal):', e.message);
+      }
+
+      await wa_delay(2000);
+
+      // ── Step 4: Add remaining participants if we used fallback ──
       let allUpdateResults = [];
-      if (uniqueJids.length > 0) {
+      const remainingJids = uniqueJids.slice(1); // skip first (already in group)
+      if (remainingJids.length > 0) {
         try {
-          const resAll = await sock.groupParticipantsUpdate(group.id, uniqueJids, 'add');
-          allUpdateResults = Array.isArray(resAll) ? resAll : [resAll].filter(Boolean);
-        } catch (batchAddErr) {
-          for (const pJid of uniqueJids) {
-            try {
-              const resSingle = await sock.groupParticipantsUpdate(group.id, [pJid], 'add');
-              if (Array.isArray(resSingle)) allUpdateResults.push(...resSingle);
-              else if (resSingle) allUpdateResults.push(resSingle);
-            } catch (singleAddErr) {
-              allUpdateResults.push({ jid: pJid, status: '403' });
-            }
-          }
+          const res2 = await sock.groupParticipantsUpdate(group.id, remainingJids, 'add');
+          allUpdateResults = Array.isArray(res2) ? res2 : [res2].filter(Boolean);
+        } catch (e) {
+          console.log('[create-group] adding remaining participants failed (non-fatal):', e.message);
+          allUpdateResults = remainingJids.map((j) => ({ jid: j, status: '403' }));
         }
+        await wa_delay(2000);
       }
 
-      const privacyNotified = await notifyPrivacyRestrictedParticipants(group.id, name, allUpdateResults, inviteLink);
+      // ── Step 5: Notify privacy-restricted participants via PM (background, non-blocking) ──
+      const privacyNotified = [];
+      setImmediate(async () => {
+        try {
+          await notifyPrivacyRestrictedParticipants(group.id, name, allUpdateResults, inviteLink);
+        } catch (e) {}
+      });
 
+      // ── Step 6: Update local cache only (skip refreshGroups to avoid load) ──
       cachedGroups.unshift({
         id: group.id,
         name: name || 'New Batch Group',
@@ -802,7 +822,8 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(GROUPS_CACHE_FILE, JSON.stringify(cachedGroups, null, 2));
       } catch (e) {}
 
-      refreshGroups(true).catch(() => {});
+      // Delay group refresh by 30s to not hammer WhatsApp right after group ops
+      setTimeout(() => refreshGroups(true).catch(() => {}), 30000);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(
