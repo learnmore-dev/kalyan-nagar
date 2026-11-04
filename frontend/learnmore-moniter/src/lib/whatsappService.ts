@@ -350,21 +350,11 @@ class WhatsAppService {
       `${topicsSummary}`,
     ].join('\n');
 
-    let delivered = false;
-    if (batch.whatsapp_group_id && batch.whatsapp_group_id.includes('@g.us')) {
-      try {
-        delivered = await callBaileysSend(batch.whatsapp_group_id, attendanceGroupMessage, false);
-      } catch { }
-    }
-
-    if (!delivered) {
-      const liveGroupJid = await findGroupJidByName(batch.whatsapp_group_name || batch.name);
-      if (liveGroupJid) {
-        try {
-          delivered = await callBaileysSend(liveGroupJid, attendanceGroupMessage, false);
-        } catch { }
-      }
-    }
+    // WhatsApp broadcast DISABLED — session notifications stay on dashboard only
+    const delivered = false;
+    // if (batch.whatsapp_group_id && batch.whatsapp_group_id.includes('@g.us')) {
+    //   delivered = await callBaileysSend(batch.whatsapp_group_id, attendanceGroupMessage, false);
+    // }
 
     this.botState.totalMessagesDelivered += 1;
 
@@ -461,98 +451,6 @@ class WhatsAppService {
   }
 
 
-
-  public async sendAttendanceCheckIn(params: {
-    trainer: User;
-    checkInTime: string;
-    locationName?: string;
-    latitude?: string | number | null;
-    longitude?: string | number | null;
-  }): Promise<{ success: boolean; messageText: string }> {
-    await this.syncAttendanceGroupWithServer();
-    const { trainer, checkInTime } = params;
-
-    const formattedTime = formatTimeSafely(checkInTime);
-    const formattedDate = formatDateSafely(checkInTime);
-
-    const desig = trainer.designation ? ` (${trainer.designation})` : '';
-    const checkInMessage = [
-      `Trainer Name: ${trainer.name}${desig}`,
-      `WhatsApp: ${trainer.phone || '+91 9876543210'}`,
-      `Login Time: ${formattedTime}`,
-      `Date: ${formattedDate}`,
-      params.locationName ? `Location: ${params.locationName}` : null,
-    ].filter(Boolean).join('\n');
-
-    let sent = false;
-    if (this.attendanceGroup.id) {
-      try {
-        sent = await callBaileysSend(this.attendanceGroup.id, checkInMessage, false);
-      } catch { }
-    }
-
-    if (!sent) {
-      const fallbackJid = await findGroupJidByName(this.attendanceGroup.name || 'Login');
-      if (fallbackJid) {
-        try {
-          sent = await callBaileysSend(fallbackJid, checkInMessage, false);
-        } catch { }
-      }
-    }
-
-    this.botState.totalMessagesDelivered += 1;
-    return { success: true, messageText: checkInMessage };
-  }
-
-  public async sendAttendanceCheckOut(params: {
-    trainer: User;
-    checkInTime: string;
-    checkOutTime: string;
-    totalMinutesWorked: number;
-    locationName?: string;
-    latitude?: string | number | null;
-    longitude?: string | number | null;
-  }): Promise<{ success: boolean; messageText: string; isCompleted9h: boolean }> {
-    await this.syncAttendanceGroupWithServer();
-    const { trainer, checkInTime, checkOutTime, totalMinutesWorked } = params;
-
-    const inTimeFormatted = formatTimeSafely(checkInTime);
-    const outTimeFormatted = formatTimeSafely(checkOutTime);
-    const formattedDate = formatDateSafely(checkOutTime);
-    const desig = trainer.designation ? ` (${trainer.designation})` : '';
-
-    const h = Math.floor(totalMinutesWorked / 60);
-    const m = totalMinutesWorked % 60;
-
-    const checkOutMessage = [
-      `Trainer Name: ${trainer.name}${desig}`,
-      `WhatsApp: ${trainer.phone || '+91 9876543210'}`,
-      `Login Time: ${inTimeFormatted}`,
-      `Logout Time: ${outTimeFormatted}`,
-      `Date: ${formattedDate}`,
-      `Working Hours: ${h}h ${m}m`,
-      params.locationName ? `Location: ${params.locationName}` : null,
-    ].filter(Boolean).join('\n');
-
-    let sent = false;
-    if (this.attendanceGroup.id) {
-      try {
-        sent = await callBaileysSend(this.attendanceGroup.id, checkOutMessage, false);
-      } catch { }
-    }
-
-    if (!sent) {
-      const fallbackJid = await findGroupJidByName(this.attendanceGroup.name || 'Login');
-      if (fallbackJid) {
-        try {
-          sent = await callBaileysSend(fallbackJid, checkOutMessage, false);
-        } catch { }
-      }
-    }
-
-    this.botState.totalMessagesDelivered += 1;
-    return { success: true, messageText: checkOutMessage, isCompleted9h: totalMinutesWorked >= 540 };
-  }
 
   public async sendLeaveNotification(params: {
     trainerName: string;

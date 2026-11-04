@@ -52,55 +52,6 @@ from .serializers import (
 BAILEYS_URL = 'http://127.0.0.1:5002'
 
 
-ATTENDANCE_GROUP_ID = '120363231853245188@g.us'
-
-
-def send_attendance_whatsapp(message):
-    """
-    Send trainer attendance notification through the local Baileys gateway.
-    Uses selected attendance group from AttendanceGroupConfig if available.
-    """
-    try:
-        cfg = AttendanceGroupConfig.objects.first()
-        target = cfg.group_id if (cfg and cfg.group_id) else ATTENDANCE_GROUP_ID
-        response = requests.post(
-            f"{BAILEYS_URL}/send-message",
-            json={
-                'target': target,
-                'text': message,
-                'queueIfOffline': True,
-            },
-            timeout=10,
-        )
-
-        if response.ok:
-            result = response.json()
-            if result.get('success'):
-                try:
-                    print(f"[ATTENDANCE WHATSAPP] Sent to {target} successfully.")
-                except Exception:
-                    pass
-                return True
-
-            try:
-                print(f"[ATTENDANCE WHATSAPP] Baileys returned failure: {result}")
-            except Exception:
-                pass
-        else:
-            try:
-                print(f"[ATTENDANCE WHATSAPP] HTTP {response.status_code}: {response.text[:500]}")
-            except Exception:
-                pass
-
-    except Exception as e:
-        try:
-            print(f"[ATTENDANCE WHATSAPP] Error: {e}")
-        except Exception:
-            pass
-
-    return False
-
-
 @method_decorator(csrf_exempt, name='dispatch')
 class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.all().order_by('-created_at')
@@ -811,10 +762,9 @@ class WorkSessionViewSet(viewsets.ModelViewSet):
                 batch.completed_at = timezone.now()
             batch.save()
 
-        # Automatic WhatsApp broadcast to Batch Group
-        whatsapp_result = {'sent': False}
-        whatsapp_sent_param = request.data.get('whatsapp_sent')
-        should_send_wa = True if whatsapp_sent_param is None else str(whatsapp_sent_param).lower() in ['true', '1', 'yes']
+        # WhatsApp broadcast DISABLED — session notifications stay on dashboard only
+        whatsapp_result = {'sent': False, 'disabled': True}
+        should_send_wa = False
 
         if should_send_wa and batch:
             target_jid = (batch.whatsapp_group_id or '').strip()
@@ -903,18 +853,30 @@ class WorkSessionViewSet(viewsets.ModelViewSet):
 
 
 class TrainerAttendanceViewSet(viewsets.ModelViewSet):
-    queryset = TrainerAttendance.objects.all().order_by('-created_at')
+    queryset = TrainerAttendance.objects.select_related('trainer').order_by('-date', '-created_at')
     serializer_class = TrainerAttendanceSerializer
 
     def list(self, request, *args, **kwargs):
         trainer_id = request.query_params.get('trainer_id')
         date       = request.query_params.get('date')
-        queryset   = self.get_queryset()
+        today_only = request.query_params.get('today') == 'true'
+
+        queryset = self.get_queryset()
+
         if trainer_id:
             from django.db.models import Q
             queryset = queryset.filter(Q(trainer_id=trainer_id) | Q(trainer__username=trainer_id))
+
         if date:
             queryset = queryset.filter(date=date)
+        elif today_only:
+            today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
+            queryset = queryset.filter(date=today_str)
+
+        # Limit records — no need to send full history in one shot
+        limit = int(request.query_params.get('limit', 90))
+        queryset = queryset[:limit]
+
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'attendances': serializer.data})
 
@@ -930,7 +892,9 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
         if not trainer_id:
             return Response({'success': False, 'error': 'trainer_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        trainer = UserProfile.objects.filter(id=trainer_id).first() or UserProfile.objects.filter(username=trainer_id).first()
+        trainer = UserProfile.objects.filter(id=trainer_id).first()
+        if not trainer:
+            trainer = UserProfile.objects.filter(username=trainer_id).first()
         if not trainer:
             return Response({'success': False, 'error': 'Trainer not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -960,24 +924,7 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
                 attendance.location_name = request.data.get('location_name')
             attendance.save()
 
-        now_dt = timezone.localtime(timezone.now())
-        formatted_date = now_dt.strftime('%d %b %Y')
-        formatted_in_time = now_dt.strftime('%I:%M %p')
-        loc_name = request.data.get('location_name', 'Live GPS Location')
-
         serializer = self.get_serializer(attendance)
-
-        desig_str = f" ({trainer.designation})" if trainer.designation else " (Faculty Trainer)"
-        phone_str = trainer.phone or '+91 9876543210'
-
-        # Send clean plain text Check-In alert (no emojis or symbols)
-        send_attendance_whatsapp(
-            f"Trainer Name: {trainer.name}{desig_str}\n"
-            f"WhatsApp: {phone_str}\n"
-            f"Login Time: {formatted_in_time}\n"
-            f"Date: {formatted_date}\n"
-            f"Location: {attendance.location_name or loc_name}"
-        )
 
         return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-In recorded successfully'})
 
@@ -992,8 +939,6 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
         now_dt = timezone.localtime(timezone.now())
         today_str = now_dt.strftime('%Y-%m-%d')
         now_time = now_dt.strftime('%H:%M:%S')
-        formatted_date = now_dt.strftime('%d %b %Y')
-        formatted_out_time = now_dt.strftime('%I:%M %p')
         photo_val = request.data.get('photo') or request.data.get('selfie_url') or ''
 
         attendance = TrainerAttendance.objects.filter(trainer_id=trainer_id, date=today_str).first()
@@ -1005,11 +950,9 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
             if photo_val:
                 attendance.photo_out = photo_val
 
-            formatted_in_time = ''
             if attendance.mark_in_time:
                 try:
                     t1 = datetime.strptime(str(attendance.mark_in_time)[:8], '%H:%M:%S')
-                    formatted_in_time = t1.strftime('%I:%M %p')
                     t2 = datetime.strptime(str(now_time)[:8], '%H:%M:%S')
                     diff_sec = (t2 - t1).total_seconds()
                     if diff_sec > 0:
@@ -1029,22 +972,6 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
                 attendance.day_status = 'present'
 
             attendance.save()
-
-            trainer_obj = trainer or attendance.trainer
-            t_name = trainer_obj.name if trainer_obj else attendance.trainer_name
-            t_desig = f" ({trainer_obj.designation})" if (trainer_obj and trainer_obj.designation) else " (Faculty Trainer)"
-            t_phone = trainer_obj.phone if (trainer_obj and trainer_obj.phone) else '+91 9876543210'
-
-            # Send clean plain text Check-Out alert (no emojis or symbols)
-            send_attendance_whatsapp(
-                f"Trainer Name: {t_name}{t_desig}\n"
-                f"WhatsApp: {t_phone}\n"
-                f"Login Time: {formatted_in_time or attendance.mark_in_time}\n"
-                f"Logout Time: {formatted_out_time}\n"
-                f"Date: {formatted_date}\n"
-                f"Working Hours: {attendance.working_duration or '0h 0m'}\n"
-                f"Location: {attendance.location_name or 'Campus'}"
-            )
 
             serializer = self.get_serializer(attendance)
             return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-Out recorded successfully'})
@@ -2817,6 +2744,5 @@ def support_update_status_view(request, thread_id):
         'success': True,
         'thread': SupportThreadSerializer(thread).data
     })
-
 
 

@@ -110,14 +110,23 @@ export default function TrainerAttendancePage() {
   const fetchTrainerAttendanceData = async (userId: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/attendance/?trainer_id=${userId}`);
-      const data = await res.json();
-      if (data.success) {
-        setAllAttendances(data.attendances || []);
-        const todayRecord = data.attendances.find(
-          (a: TrainerAttendance) => a.trainer_id === userId && a.date === todayStr
-        );
-        setTodayAttendance(todayRecord || null);
+      // Fetch today's record first (fast) + history in parallel
+      const todayStr2 = new Date().toISOString().split('T')[0];
+      const [todayRes, historyRes] = await Promise.all([
+        fetch(`/api/attendance/?trainer_id=${userId}&date=${todayStr2}`),
+        fetch(`/api/attendance/?trainer_id=${userId}&limit=90`),
+      ]);
+      const [todayData, historyData] = await Promise.all([
+        todayRes.json(),
+        historyRes.json(),
+      ]);
+
+      if (todayData.success) {
+        const todayRecord = (todayData.attendances || [])[0] || null;
+        setTodayAttendance(todayRecord);
+      }
+      if (historyData.success) {
+        setAllAttendances(historyData.attendances || []);
       }
     } catch {
       // silent
@@ -172,10 +181,23 @@ export default function TrainerAttendancePage() {
       const data = await res.json();
       if (data.success) {
         setMessage({
-          text: `Check-${captureAction.toUpperCase()} marked successfully! WhatsApp group notified.`,
+          text: `Check-${captureAction.toUpperCase()} marked successfully!`,
           type: 'success',
         });
-        await fetchTrainerAttendanceData(user.id);
+        // Use the attendance object from response directly — no extra API call needed
+        if (data.attendance) {
+          setTodayAttendance(data.attendance);
+          setAllAttendances(prev => {
+            const filtered = prev.filter(a => a.date !== data.attendance.date || a.trainer_id !== data.attendance.trainer_id);
+            return [data.attendance, ...filtered];
+          });
+        } else {
+          // Fallback: only refresh today (fast)
+          const todayStr2 = new Date().toISOString().split('T')[0];
+          const todayRes = await fetch(`/api/attendance/?trainer_id=${user.id}&date=${todayStr2}`);
+          const todayData = await todayRes.json();
+          if (todayData.success) setTodayAttendance((todayData.attendances || [])[0] || null);
+        }
       } else {
         setMessage({ text: data.error || 'Failed to record attendance', type: 'error' });
       }
