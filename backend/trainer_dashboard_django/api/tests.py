@@ -224,3 +224,28 @@ class ExportAttendanceTests(TestCase):
         self.assertIn('5 Oct', body)
         self.assertIn('Present', body)
         self.assertIn('Week Off', body)
+        self.assertIn('09:00:00', body)
+
+    def test_export_uses_trainer_fk_when_name_is_blank(self):
+        TrainerAttendance.objects.all().delete()
+        TrainerAttendance.objects.create(
+            trainer=self.trainer,
+            trainer_name='',
+            date='2026-10-31',
+            mark_in_time='10:15:00',
+            mark_out_time='19:48:00',
+            day_status='present',
+            total_work_minutes=573,
+        )
+        request = self.factory.get('/api/export-attendance/', {
+            'month': '10',
+            'year': '2026',
+            'trainer': self.trainer.id,
+        })
+        force_authenticate(request, user=self.auth_user)
+        response = export_attendance_view(request)
+        body = response.content.decode('utf-8-sig')
+        self.assertIn('Present', body)
+        self.assertIn('10:15:00', body)
+        self.assertIn('19:48:00', body)
+        self.assertNotIn('No Attendance Recorded', body.split('31 Oct')[1][:400])

@@ -869,7 +869,11 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
 
         if trainer_id:
             from django.db.models import Q
-            queryset = queryset.filter(Q(trainer_id=trainer_id) | Q(trainer__username=trainer_id))
+            queryset = queryset.filter(
+                Q(trainer_id=trainer_id) |
+                Q(trainer__id=trainer_id) |
+                Q(trainer__username=trainer_id)
+            )
 
         month_prefix = None
         if month:
@@ -2039,19 +2043,34 @@ def export_attendance_view(request):
     month_name = calendar.month_name[month]
     esc = html_lib.escape
 
-    attendances = TrainerAttendance.objects.filter(date__startswith=month_prefix)
-    leaves = Leave.objects.exclude(status='rejected')
+    attendances = list(
+        TrainerAttendance.objects.filter(date__startswith=month_prefix).select_related('trainer')
+    )
+    leaves = list(Leave.objects.exclude(status='rejected').select_related('trainer'))
+
+    def row_trainer_keys(row):
+        keys = []
+        tid = str(getattr(row, 'trainer_id', '') or '').strip()
+        if tid:
+            keys.append(tid)
+        trainer_obj = getattr(row, 'trainer', None)
+        if trainer_obj is not None:
+            keys.append(str(getattr(trainer_obj, 'id', '') or ''))
+            keys.append(str(getattr(trainer_obj, 'username', '') or ''))
+            keys.append(str(getattr(trainer_obj, 'name', '') or '').strip().lower())
+        keys.append(str(getattr(row, 'trainer_name', '') or '').strip().lower())
+        return {k for k in keys if k}
 
     trainer_blocks = []
     for trainer in trainers:
-        def belongs_to_trainer(row):
-            tid = str(getattr(row, 'trainer_id', '') or '')
-            tname = str(getattr(row, 'trainer_name', '') or '').strip().lower()
-            return (
-                tid == str(trainer.id) or
-                tid == str(trainer.username) or
-                (trainer.name and tname == trainer.name.strip().lower())
-            )
+        wanted = {
+            str(trainer.id),
+            str(trainer.username),
+            str(trainer.name or '').strip().lower(),
+        }
+
+        def belongs_to_trainer(row, wanted_keys=wanted):
+            return bool(row_trainer_keys(row) & wanted_keys)
 
         trainer_atts = {
             str(a.date)[:10]: a
