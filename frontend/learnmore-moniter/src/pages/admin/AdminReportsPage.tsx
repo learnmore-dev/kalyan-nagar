@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, TrainerAttendance, Batch, Leave } from '@/lib/types';
 import { formatTimeSafely } from '@/lib/whatsappService';
 import {
@@ -13,6 +13,45 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
+
+function nestedTrainer(row: any) {
+  return row?.trainer && typeof row.trainer === 'object' ? row.trainer : null;
+}
+
+function rowTrainerKeys(row: any): string[] {
+  const nested = nestedTrainer(row);
+  return [
+    row?.trainer_id,
+    row?.trainerId,
+    typeof row?.trainer === 'string' || typeof row?.trainer === 'number' ? row.trainer : '',
+    nested?.id,
+    nested?.username,
+    row?.trainer_username,
+    row?.username,
+    row?.trainer_name,
+    nested?.name,
+  ]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean);
+}
+
+function belongsToTrainer(row: any, trainer: User) {
+  const id = String(trainer.id ?? '').trim();
+  const username = String(trainer.username ?? '').trim();
+  const name = String(trainer.name ?? '').trim();
+  const keys = rowTrainerKeys(row);
+  return keys.some((key) => {
+    const k = key.toLowerCase();
+    return (
+      key === id ||
+      key === username ||
+      key === name ||
+      k === id.toLowerCase() ||
+      k === username.toLowerCase() ||
+      k === name.toLowerCase()
+    );
+  });
+}
 
 export default function AdminReportsPage() {
   const [trainers, setTrainers] = useState<User[]>([]);
@@ -36,18 +75,62 @@ export default function AdminReportsPage() {
     });
   }, []);
 
+  const stampAttendanceRows = (rows: any[], trainerList: User[]) =>
+    (rows || []).map((row) => {
+      const nested = nestedTrainer(row);
+      const tid = String(
+        row?.trainer_id ||
+          row?.trainerId ||
+          nested?.id ||
+          (typeof row?.trainer === 'string' || typeof row?.trainer === 'number' ? row.trainer : '') ||
+          ''
+      ).trim();
+      const tname = String(row?.trainer_name || nested?.name || '').trim();
+      const tuser = String(row?.trainer_username || nested?.username || '').trim();
+      const match =
+        trainerList.find(
+          (t) =>
+            t.id === tid ||
+            t.username === tid ||
+            t.username === tuser ||
+            (!!tname && t.name.trim().toLowerCase() === tname.toLowerCase())
+        ) || null;
+      return {
+        ...row,
+        trainer_id: match?.id || tid,
+        trainer_name: tname || match?.name || '',
+        trainer_username: tuser || match?.username || '',
+      };
+    });
+
   const fetchReports = async () => {
     setLoading(true);
     try {
       const monthParam = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-      const [attRes, leaveRes] = await Promise.all([
-        fetch(`/api/attendance/?month=${monthParam}`),
-        fetch('/api/leaves/'),
-      ]);
-      const attData = await attRes.json();
-      const leaveData = await leaveRes.json();
-      if (attData.success) setAttendances(attData.attendances || []);
-      if (leaveData.success) setLeaves(leaveData.leaves || []);
+      const trainerList = trainers;
+      const leavePromise = fetch('/api/leaves/').then((r) => r.json());
+      const attPromise = trainerList.length
+        ? Promise.all(
+            trainerList.map(async (t) => {
+              const res = await fetch(
+                `/api/attendance/?trainer_id=${encodeURIComponent(t.id)}&month=${monthParam}`
+              );
+              const data = await res.json();
+              return ((data.attendances || []) as any[]).map((row) => ({
+                ...row,
+                trainer_id: t.id,
+                trainer_name: row.trainer_name || t.name,
+                trainer_username: t.username,
+              }));
+            })
+          ).then((chunks) => chunks.flat())
+        : fetch(`/api/attendance/?month=${monthParam}`)
+            .then((r) => r.json())
+            .then((data) => stampAttendanceRows(data.attendances || [], trainerList));
+
+      const [attRows, leaveData] = await Promise.all([attPromise, leavePromise]);
+      setAttendances(Array.isArray(attRows) ? attRows : []);
+      if (leaveData.success) setLeaves(stampAttendanceRows(leaveData.leaves || [], trainerList));
     } catch {
       // silent
     } finally {
@@ -58,14 +141,14 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     fetchReports();
-  }, [selectedMonth, selectedYear]);
+  }, [selectedMonth, selectedYear, trainers]);
 
   const activeTrainers = selectedTrainer === 'all'
     ? trainers
     : trainers.filter((t) => t.id === selectedTrainer);
 
   // Generate day-by-day logs for selected month & year
-  const getMonthReportData = (trainer: User) => {
+  const getMonthReportData = (trainer: User, attRows = attendances, leaveRows = leaves) => {
     const daysInMonth = new Date(selectedYear, selectedMonth, 0).getDate();
     const daysList = [];
     let presentCount = 0;
@@ -77,24 +160,8 @@ export default function AdminReportsPage() {
 
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const trainerKey = String(trainer.id);
-    const trainerName = String(trainer.name || '').trim().toLowerCase();
-    const trainerUser = String(trainer.username || '').trim().toLowerCase();
-
-    const belongsToTrainer = (row: any) => {
-      const tid = String(row?.trainer_id ?? row?.trainer ?? '').trim();
-      const tname = String(row?.trainer_name ?? '').trim().toLowerCase();
-      const tuser = String(row?.trainer_username ?? row?.username ?? '').trim().toLowerCase();
-      return (
-        tid === trainerKey ||
-        tid === String(trainer.username) ||
-        (!!trainerName && tname === trainerName) ||
-        (!!trainerUser && tuser === trainerUser)
-      );
-    };
-
-    const trainerAtts = attendances.filter(belongsToTrainer);
-    const trainerLeaves = leaves.filter(belongsToTrainer);
+    const trainerAtts = attRows.filter((row) => belongsToTrainer(row, trainer));
+    const trainerLeaves = leaveRows.filter((row) => belongsToTrainer(row, trainer));
 
     for (let day = daysInMonth; day >= 1; day--) {
       const monthStr = selectedMonth < 10 ? `0${selectedMonth}` : `${selectedMonth}`;
@@ -312,6 +379,15 @@ export default function AdminReportsPage() {
     };
   };
 
+  const trainerReports = useMemo(
+    () =>
+      activeTrainers.map((trainer) => ({
+        trainer,
+        data: getMonthReportData(trainer, attendances, leaves),
+      })),
+    [activeTrainers, attendances, leaves, selectedMonth, selectedYear, batches]
+  );
+
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -372,12 +448,8 @@ export default function AdminReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const buildDashboardExcelXml = () => {
+  const buildDashboardExcelXml = (reports = trainerReports) => {
     const monthName = MONTH_NAMES[selectedMonth - 1];
-    const reports = activeTrainers.map((trainer) => ({
-      trainer,
-      data: getMonthReportData(trainer),
-    }));
     const usedNames = new Set<string>(['summary']);
 
     const styles = `
@@ -401,7 +473,7 @@ export default function AdminReportsPage() {
 
     const summaryRows = [
       ssRow(`<Cell ss:StyleID="Title" ss:MergeAcross="8"><Data ss:Type="String">${xmlEscape(`MONTHLY ATTENDANCE REPORT — ${monthName} ${selectedYear}`)}</Data></Cell>`),
-      ssRow(`<Cell ss:StyleID="Section" ss:MergeAcross="8"><Data ss:Type="String">ALL TRAINERS SUMMARY (same as Admin Reports dashboard)</Data></Cell>`),
+      ssRow(`<Cell ss:StyleID="Section" ss:MergeAcross="8"><Data ss:Type="String">DASHBOARD DATA — same cards and daily table shown on Admin Reports</Data></Cell>`),
       ssRow(
         ['Trainer', 'Present', 'Half Day', 'Pending', 'Leave', 'Absent', 'Week Off', 'Total Hrs', 'Attendance %']
           .map((h) => ssCell(h, 'Header'))
@@ -410,12 +482,12 @@ export default function AdminReportsPage() {
       ...reports.map(({ trainer, data }) =>
         ssRow(
           ssCell(`${trainer.name} (@${trainer.username})`) +
-          ssCell(data.presentCount, 'Present', 'Number') +
-          ssCell(data.halfDayCount, 'HalfDay', 'Number') +
-          ssCell(data.pendingCount, 'Pending', 'Number') +
-          ssCell(data.leaveCount, 'LeaveApproved', 'Number') +
-          ssCell(data.absentCount, 'Absent', 'Number') +
-          ssCell(data.weekOffCount, 'WeekOff', 'Number') +
+          ssCell(String(data.presentCount), 'Present') +
+          ssCell(String(data.halfDayCount), 'HalfDay') +
+          ssCell(String(data.pendingCount), 'Pending') +
+          ssCell(String(data.leaveCount), 'LeaveApproved') +
+          ssCell(String(data.absentCount), 'Absent') +
+          ssCell(String(data.weekOffCount), 'WeekOff') +
           ssCell(data.totalHoursStr, 'Hours') +
           ssCell(`${data.attPercent}%`, 'Att')
         )
@@ -432,12 +504,12 @@ export default function AdminReportsPage() {
             .join('')
         ),
         ssRow(
-          ssCell(data.presentCount, 'Present', 'Number') +
-          ssCell(data.halfDayCount, 'HalfDay', 'Number') +
-          ssCell(data.pendingCount, 'Pending', 'Number') +
-          ssCell(data.leaveCount, 'LeaveApproved', 'Number') +
-          ssCell(data.absentCount, 'Absent', 'Number') +
-          ssCell(data.weekOffCount, 'WeekOff', 'Number') +
+          ssCell(String(data.presentCount), 'Present') +
+          ssCell(String(data.halfDayCount), 'HalfDay') +
+          ssCell(String(data.pendingCount), 'Pending') +
+          ssCell(String(data.leaveCount), 'LeaveApproved') +
+          ssCell(String(data.absentCount), 'Absent') +
+          ssCell(String(data.weekOffCount), 'WeekOff') +
           ssCell(data.totalHoursStr, 'Hours')
         ),
         ssRow(
@@ -447,7 +519,7 @@ export default function AdminReportsPage() {
           ssCell(data.incentiveAmount, 'Incentive') +
           ssCell(data.incentiveTier, 'Plain') +
           ssCell('Days in month', 'Label') +
-          ssCell(data.daysInMonth, 'Plain', 'Number')
+          ssCell(String(data.daysInMonth), 'Plain')
         ),
         ssRow(''),
         ssRow(
@@ -483,14 +555,14 @@ ${trainerSheets.join('')}
 
     return {
       xml,
-      filename: `attendance-${monthName}-${selectedYear}.xls`,
+      filename: `attendance-dashboard-${monthName}-${selectedYear}.xls`,
     };
   };
 
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const local = buildDashboardExcelXml();
+      const local = buildDashboardExcelXml(trainerReports);
       const blob = new Blob(['\uFEFF' + local.xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       downloadBlob(blob, local.filename);
     } finally {
@@ -503,8 +575,7 @@ ${trainerSheets.join('')}
     tsv += `MONTHLY ATTENDANCE SUMMARY REPORT (${MONTH_NAMES[selectedMonth - 1].toUpperCase()} ${selectedYear})\n`;
     tsv += `========================================================\n\n`;
 
-    activeTrainers.forEach((trainer) => {
-      const data = getMonthReportData(trainer);
+    trainerReports.forEach(({ trainer, data }) => {
       tsv += `TRAINER: ${trainer.name} (@${trainer.username})\n`;
       tsv += `SUMMARY -> Present Days: ${data.presentCount} | Half Days: ${data.halfDayCount} | Leave Days: ${data.leaveCount} | Total Hrs: ${data.totalHoursStr} | Attendance %: ${data.attPercent}%\n\n`;
       tsv += `Date\tDay\tStatus\tMark In\tMark Out\tDuration\tLocation\n`;
@@ -617,9 +688,7 @@ ${trainerSheets.join('')}
         </div>
 
         <div className="space-y-8">
-          {activeTrainers.map((trainer) => {
-            const report = getMonthReportData(trainer);
-
+          {trainerReports.map(({ trainer, data: report }) => {
             return (
               <div
                 key={trainer.id}
