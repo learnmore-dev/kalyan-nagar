@@ -1993,14 +1993,26 @@ def _time_to_minutes(t_str):
     return None
 
 
+def _attendance_status_style(status):
+    return {
+        'PRESENT': 'background:#16a34a;color:#ffffff;font-weight:700;',
+        'HALF_DAY': 'background:#f97316;color:#ffffff;font-weight:700;',
+        'PENDING': 'background:#eab308;color:#422006;font-weight:700;',
+        'LEAVE': 'background:#db2777;color:#ffffff;font-weight:700;',
+        'ABSENT': 'background:#dc2626;color:#ffffff;font-weight:700;',
+        'WEEK_OFF': 'background:#64748b;color:#ffffff;font-weight:700;',
+        'HOLIDAY': 'background:#7c3aed;color:#ffffff;font-weight:700;',
+    }.get(status, 'background:#e2e8f0;color:#334155;font-weight:700;')
+
+
 @api_view(['GET'])
 def export_attendance_view(request):
     """
-    Download a month's trainer attendance as an Excel-friendly CSV.
+    Download a month's trainer attendance as a colorful Excel (.xls) workbook.
     GET /api/export-attendance/?month=10&year=2026&trainer=<id>
     """
     import calendar
-    import csv
+    import html as html_lib
     from datetime import date as date_cls
     from django.http import HttpResponse
 
@@ -2022,19 +2034,12 @@ def export_attendance_view(request):
     days_in_month = calendar.monthrange(year, month)[1]
     today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
     month_name = calendar.month_name[month]
+    esc = html_lib.escape
 
     attendances = TrainerAttendance.objects.filter(date__startswith=month_prefix)
     leaves = Leave.objects.exclude(status='rejected')
 
-    response = HttpResponse(content_type='text/csv; charset=utf-8')
-    filename = f'attendance-{month_name}-{year}.csv'
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response.write('\ufeff')
-    writer = csv.writer(response)
-    writer.writerow([f'MONTHLY ATTENDANCE REPORT', f'{month_name} {year}'])
-    writer.writerow([])
-    writer.writerow(['Trainer', 'Username', 'Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location'])
-
+    trainer_blocks = []
     for trainer in trainers:
         trainer_atts = {
             str(a.date)[:10]: a
@@ -2045,6 +2050,12 @@ def export_attendance_view(request):
             l for l in leaves
             if str(l.trainer_id) == str(trainer.id)
         ]
+        days = []
+        counts = {
+            'PRESENT': 0, 'HALF_DAY': 0, 'PENDING': 0,
+            'LEAVE': 0, 'ABSENT': 0, 'WEEK_OFF': 0,
+        }
+        total_minutes = 0
 
         for day in range(1, days_in_month + 1):
             full_date = f'{year}-{month:02d}-{day:02d}'
@@ -2079,6 +2090,7 @@ def export_attendance_view(request):
                             dur_minutes = out_m - in_m
                             if dur_minutes < 0:
                                 dur_minutes += 24 * 60
+                    total_minutes += max(dur_minutes, 0)
                     duration = f'{dur_minutes // 60}h {dur_minutes % 60}m'
                     location = att.location_name or 'Institute Lab'
                     if dur_minutes < 300:
@@ -2100,18 +2112,105 @@ def export_attendance_view(request):
             else:
                 status_label = 'PENDING'
 
-            writer.writerow([
-                trainer.name,
-                trainer.username,
-                full_date,
-                weekday,
-                status_label,
-                mark_in,
-                mark_out,
-                duration,
-                location,
-            ])
+            counts[status_label] = counts.get(status_label, 0) + 1
+            days.append({
+                'date': full_date,
+                'weekday': weekday,
+                'status': status_label,
+                'mark_in': mark_in,
+                'mark_out': mark_out,
+                'duration': duration,
+                'location': location,
+            })
 
+        working_days = days_in_month - (days_in_month // 7)
+        effective = counts['PRESENT'] + counts['HALF_DAY'] * 0.5
+        att_percent = (effective / working_days * 100) if working_days else 0
+        trainer_blocks.append({
+            'name': trainer.name,
+            'username': trainer.username,
+            'days': days,
+            'counts': counts,
+            'hours': f'{total_minutes / 60:.1f}h',
+            'att_percent': f'{att_percent:.2f}',
+        })
+
+    th = 'background:#0f172a;color:#fff;font-weight:700;padding:6px 8px;border:1px solid #1e293b;'
+    td = 'padding:5px 8px;border:1px solid #cbd5e1;'
+
+    def summary_cell(label, value, bg):
+        return (
+            f'<td style="padding:8px 10px;border:1px solid #cbd5e1;background:{bg};'
+            f'color:#0f172a;font-weight:700;text-align:center;">{esc(label)}<br/>'
+            f'<span style="font-size:16px;">{esc(str(value))}</span></td>'
+        )
+
+    rows = [
+        '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8" /></head><body>',
+        '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;width:100%;">',
+        f'<tr><td colspan="7" style="background:#1d4ed8;color:#fff;font-size:18px;font-weight:800;padding:12px;">MONTHLY ATTENDANCE REPORT — {esc(month_name)} {year}</td></tr>',
+        '<tr><td colspan="7" style="padding:8px 0 4px;font-size:14px;font-weight:800;">ALL TRAINERS SUMMARY</td></tr>',
+        f'<tr><th style="{th}">Trainer</th><th style="{th}">Present</th><th style="{th}">Half Day</th>'
+        f'<th style="{th}">Pending</th><th style="{th}">Leave</th><th style="{th}">Absent</th>'
+        f'<th style="{th}">Week Off</th></tr>',
+    ]
+
+    for block in trainer_blocks:
+        c = block['counts']
+        rows.append(
+            f'<tr><td style="{td}font-weight:700;">{esc(block["name"])} (@{esc(block["username"])})</td>'
+            f'<td style="{td}{_attendance_status_style("PRESENT")}text-align:center;">{c["PRESENT"]}</td>'
+            f'<td style="{td}{_attendance_status_style("HALF_DAY")}text-align:center;">{c["HALF_DAY"]}</td>'
+            f'<td style="{td}{_attendance_status_style("PENDING")}text-align:center;">{c["PENDING"]}</td>'
+            f'<td style="{td}{_attendance_status_style("LEAVE")}text-align:center;">{c["LEAVE"]}</td>'
+            f'<td style="{td}{_attendance_status_style("ABSENT")}text-align:center;">{c["ABSENT"]}</td>'
+            f'<td style="{td}{_attendance_status_style("WEEK_OFF")}text-align:center;">{c["WEEK_OFF"]}</td></tr>'
+        )
+
+    for block in trainer_blocks:
+        c = block['counts']
+        rows.append(f'<tr><td colspan="7" style="height:12px;border:none;"></td></tr>')
+        rows.append(
+            f'<tr><td colspan="7" style="background:#0f172a;color:#fff;font-size:14px;font-weight:800;padding:10px;">'
+            f'{esc(block["name"])} (@{esc(block["username"])}) — Daily attendance for {esc(month_name)} {year} ({days_in_month} days)</td></tr>'
+        )
+        rows.append(
+            f'<tr><th style="{th}">Date</th><th style="{th}">Day</th><th style="{th}">Status</th>'
+            f'<th style="{th}">Mark In</th><th style="{th}">Mark Out</th><th style="{th}">Duration</th>'
+            f'<th style="{th}">Location / Reason</th></tr>'
+        )
+        for day in block['days']:
+            rows.append(
+                f'<tr><td style="{td}">{esc(day["date"])}</td><td style="{td}">{esc(day["weekday"])}</td>'
+                f'<td style="{td}{_attendance_status_style(day["status"])}text-align:center;">{esc(day["status"].replace("_", " "))}</td>'
+                f'<td style="{td}">{esc(day["mark_in"])}</td><td style="{td}">{esc(day["mark_out"])}</td>'
+                f'<td style="{td}">{esc(day["duration"])}</td><td style="{td}">{esc(day["location"])}</td></tr>'
+            )
+        rows.append(
+            f'<tr><td colspan="7" style="background:#f8fafc;font-weight:800;padding:8px;border:1px solid #cbd5e1;">SUMMARY — {esc(block["name"])}</td></tr>'
+        )
+        rows.append(
+            '<tr>'
+            + summary_cell('Present', c['PRESENT'], '#bbf7d0')
+            + summary_cell('Half Day', c['HALF_DAY'], '#fed7aa')
+            + summary_cell('Pending', c['PENDING'], '#fde68a')
+            + summary_cell('Leave', c['LEAVE'], '#fbcfe8')
+            + summary_cell('Absent', c['ABSENT'], '#fecaca')
+            + summary_cell('Week Off', c['WEEK_OFF'], '#cbd5e1')
+            + summary_cell('Days in month', days_in_month, '#dbeafe')
+            + '</tr>'
+        )
+        rows.append(
+            f'<tr><td colspan="3" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Total Hours: {esc(block["hours"])}</td>'
+            f'<td colspan="4" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Attendance %: {esc(block["att_percent"])}%</td></tr>'
+        )
+
+    rows.append('</table></body></html>')
+    html_body = '\ufeff' + ''.join(rows)
+
+    response = HttpResponse(html_body, content_type='application/vnd.ms-excel; charset=utf-8')
+    filename = f'attendance-{month_name}-{year}.xls'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
 
 
