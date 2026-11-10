@@ -78,14 +78,23 @@ export default function AdminReportsPage() {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const trainerKey = String(trainer.id);
+    const trainerName = String(trainer.name || '').trim().toLowerCase();
+    const trainerUser = String(trainer.username || '').trim().toLowerCase();
 
-    const trainerAtts = attendances.filter((a) => {
-      const tid = String((a as any).trainer_id ?? (a as any).trainer ?? '');
-      return tid === trainerKey;
-    });
-    const trainerLeaves = leaves.filter(
-      (l) => l.trainer_id === trainer.id || (l as any).trainer === trainer.id
-    );
+    const belongsToTrainer = (row: any) => {
+      const tid = String(row?.trainer_id ?? row?.trainer ?? '').trim();
+      const tname = String(row?.trainer_name ?? '').trim().toLowerCase();
+      const tuser = String(row?.trainer_username ?? row?.username ?? '').trim().toLowerCase();
+      return (
+        tid === trainerKey ||
+        tid === String(trainer.username) ||
+        (!!trainerName && tname === trainerName) ||
+        (!!trainerUser && tuser === trainerUser)
+      );
+    };
+
+    const trainerAtts = attendances.filter(belongsToTrainer);
+    const trainerLeaves = leaves.filter(belongsToTrainer);
 
     for (let day = daysInMonth; day >= 1; day--) {
       const monthStr = selectedMonth < 10 ? `0${selectedMonth}` : `${selectedMonth}`;
@@ -306,35 +315,51 @@ export default function AdminReportsPage() {
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const escapeHtml = (value: string | number) =>
+  const xmlEscape = (value: string | number) =>
     String(value ?? '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
 
-  const statusStyle = (status: string) => {
-    switch (String(status).toLowerCase()) {
-      case 'present':
-        return 'background:#16a34a;color:#ffffff;font-weight:700;';
-      case 'half_day':
-        return 'background:#f97316;color:#ffffff;font-weight:700;';
-      case 'pending':
-        return 'background:#eab308;color:#422006;font-weight:700;';
-      case 'leave':
-        return 'background:#db2777;color:#ffffff;font-weight:700;';
-      case 'absent':
-        return 'background:#dc2626;color:#ffffff;font-weight:700;';
-      case 'week_off':
-        return 'background:#64748b;color:#ffffff;font-weight:700;';
-      case 'holiday':
-        return 'background:#7c3aed;color:#ffffff;font-weight:700;';
-      default:
-        return 'background:#e2e8f0;color:#334155;font-weight:700;';
-    }
+  const dashboardStatusText = (log: { status: string; markIn?: string; leaveStatus?: string }) => {
+    if (log.status === 'present') return 'Present';
+    if (log.status === 'pending' && log.markIn && log.markIn !== '--') return 'Pending';
+    if (log.status === 'leave') return log.leaveStatus === 'pending' ? 'Leave (Pending)' : 'Leave (Approved)';
+    if (log.status === 'half_day') return 'Half Day';
+    if (log.status === 'absent') return 'Absent';
+    if (log.status === 'week_off') return 'Week Off';
+    return '--';
   };
 
-  const statusLabel = (status: string) => String(status || '').replace(/_/g, ' ').toUpperCase();
+  const dashboardStatusStyleId = (log: { status: string; leaveStatus?: string }) => {
+    if (log.status === 'present') return 'Present';
+    if (log.status === 'pending') return 'Pending';
+    if (log.status === 'half_day') return 'HalfDay';
+    if (log.status === 'leave') return log.leaveStatus === 'pending' ? 'LeavePending' : 'LeaveApproved';
+    if (log.status === 'absent') return 'Absent';
+    if (log.status === 'week_off') return 'WeekOff';
+    return 'Plain';
+  };
+
+  const uniqueSheetName = (raw: string, used: Set<string>) => {
+    const cleaned = raw.replace(/[\\/?*\[\]]/g, ' ').replace(/\s+/g, ' ').trim() || 'Trainer';
+    let base = cleaned.slice(0, 31);
+    let name = base;
+    let i = 2;
+    while (used.has(name.toLowerCase())) {
+      const suffix = ` ${i}`;
+      name = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+      i += 1;
+    }
+    used.add(name.toLowerCase());
+    return name;
+  };
+
+  const ssCell = (text: string | number, style = 'Plain', type = 'String') =>
+    `<Cell ss:StyleID="${style}"><Data ss:Type="${type}">${xmlEscape(text)}</Data></Cell>`;
+
+  const ssRow = (cells: string) => `<Row>${cells}</Row>`;
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -347,91 +372,117 @@ export default function AdminReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const buildColorfulExcelHtml = () => {
+  const buildDashboardExcelXml = () => {
     const monthName = MONTH_NAMES[selectedMonth - 1];
     const reports = activeTrainers.map((trainer) => ({
       trainer,
       data: getMonthReportData(trainer),
     }));
+    const usedNames = new Set<string>(['summary']);
 
-    const th = 'background:#0f172a;color:#fff;font-weight:700;padding:6px 8px;border:1px solid #1e293b;';
-    const td = 'padding:5px 8px;border:1px solid #cbd5e1;';
-    const summaryCell = (label: string, value: number | string, bg: string) =>
-      `<td style="padding:8px 10px;border:1px solid #cbd5e1;background:${bg};color:#0f172a;font-weight:700;text-align:center;">${escapeHtml(label)}<br/><span style="font-size:16px;">${escapeHtml(value)}</span></td>`;
+    const styles = `
+<Styles>
+  <Style ss:ID="Plain"><Font ss:FontName="Calibri" ss:Size="11"/></Style>
+  <Style ss:ID="Title"><Font ss:FontName="Calibri" ss:Size="16" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1D4ED8" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Section"><Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Header"><Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2D3748" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Label"><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Present"><Font ss:Bold="1" ss:Color="#065F46"/><Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="HalfDay"><Font ss:Bold="1" ss:Color="#9A3412"/><Interior ss:Color="#FFEDD5" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Pending"><Font ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="LeaveApproved"><Font ss:Bold="1" ss:Color="#6B21A8"/><Interior ss:Color="#F3E8FF" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="LeavePending"><Font ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Absent"><Font ss:Bold="1" ss:Color="#9F1239"/><Interior ss:Color="#FFE4E6" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="WeekOff"><Font ss:Bold="1" ss:Color="#475569"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Hours"><Font ss:Bold="1" ss:Color="#0E7490"/><Interior ss:Color="#CFFAFE" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Att"><Font ss:Bold="1" ss:Color="#6B21A8"/><Interior ss:Color="#F3E8FF" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Incentive"><Font ss:Bold="1" ss:Color="#166534"/><Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/></Style>
+</Styles>`;
 
-    let html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8" />
-<style>
-br { mso-data-placement:same-cell; }
-</style>
-</head><body>
-<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;width:100%;">
-<tr><td colspan="7" style="background:#1d4ed8;color:#fff;font-size:18px;font-weight:800;padding:12px;">MONTHLY ATTENDANCE REPORT — ${escapeHtml(monthName)} ${selectedYear}</td></tr>
-<tr><td colspan="7" style="padding:8px 0 4px;font-size:14px;font-weight:800;color:#0f172a;">ALL TRAINERS SUMMARY</td></tr>
-<tr>
-  <th style="${th}">Trainer</th>
-  <th style="${th}">Present</th>
-  <th style="${th}">Half Day</th>
-  <th style="${th}">Pending</th>
-  <th style="${th}">Leave</th>
-  <th style="${th}">Absent</th>
-  <th style="${th}">Week Off</th>
-</tr>`;
+    const summaryRows = [
+      ssRow(`<Cell ss:StyleID="Title" ss:MergeAcross="8"><Data ss:Type="String">${xmlEscape(`MONTHLY ATTENDANCE REPORT — ${monthName} ${selectedYear}`)}</Data></Cell>`),
+      ssRow(`<Cell ss:StyleID="Section" ss:MergeAcross="8"><Data ss:Type="String">ALL TRAINERS SUMMARY (same as Admin Reports dashboard)</Data></Cell>`),
+      ssRow(
+        ['Trainer', 'Present', 'Half Day', 'Pending', 'Leave', 'Absent', 'Week Off', 'Total Hrs', 'Attendance %']
+          .map((h) => ssCell(h, 'Header'))
+          .join('')
+      ),
+      ...reports.map(({ trainer, data }) =>
+        ssRow(
+          ssCell(`${trainer.name} (@${trainer.username})`) +
+          ssCell(data.presentCount, 'Present', 'Number') +
+          ssCell(data.halfDayCount, 'HalfDay', 'Number') +
+          ssCell(data.pendingCount, 'Pending', 'Number') +
+          ssCell(data.leaveCount, 'LeaveApproved', 'Number') +
+          ssCell(data.absentCount, 'Absent', 'Number') +
+          ssCell(data.weekOffCount, 'WeekOff', 'Number') +
+          ssCell(data.totalHoursStr, 'Hours') +
+          ssCell(`${data.attPercent}%`, 'Att')
+        )
+      ),
+    ];
 
-    reports.forEach(({ trainer, data }) => {
-      html += `<tr>
-        <td style="${td}font-weight:700;">${escapeHtml(trainer.name)} (@${escapeHtml(trainer.username)})</td>
-        <td style="${td}${statusStyle('present')}text-align:center;">${data.presentCount}</td>
-        <td style="${td}${statusStyle('half_day')}text-align:center;">${data.halfDayCount}</td>
-        <td style="${td}${statusStyle('pending')}text-align:center;">${data.pendingCount}</td>
-        <td style="${td}${statusStyle('leave')}text-align:center;">${data.leaveCount}</td>
-        <td style="${td}${statusStyle('absent')}text-align:center;">${data.absentCount}</td>
-        <td style="${td}${statusStyle('week_off')}text-align:center;">${data.weekOffCount}</td>
-      </tr>`;
+    const trainerSheets = reports.map(({ trainer, data }) => {
+      const sheet = uniqueSheetName(trainer.name, usedNames);
+      const rows = [
+        ssRow(`<Cell ss:StyleID="Title" ss:MergeAcross="6"><Data ss:Type="String">${xmlEscape(`${trainer.name} (@${trainer.username}) — ${monthName} ${selectedYear}`)}</Data></Cell>`),
+        ssRow(
+          ['Present', 'Half Day', 'Pending', 'Leave', 'Absent', 'Week Off', 'Total Hrs']
+            .map((h) => ssCell(h, 'Header'))
+            .join('')
+        ),
+        ssRow(
+          ssCell(data.presentCount, 'Present', 'Number') +
+          ssCell(data.halfDayCount, 'HalfDay', 'Number') +
+          ssCell(data.pendingCount, 'Pending', 'Number') +
+          ssCell(data.leaveCount, 'LeaveApproved', 'Number') +
+          ssCell(data.absentCount, 'Absent', 'Number') +
+          ssCell(data.weekOffCount, 'WeekOff', 'Number') +
+          ssCell(data.totalHoursStr, 'Hours')
+        ),
+        ssRow(
+          ssCell('Attendance %', 'Label') +
+          ssCell(`${data.attPercent}%`, 'Att') +
+          ssCell('Incentive', 'Label') +
+          ssCell(data.incentiveAmount, 'Incentive') +
+          ssCell(data.incentiveTier, 'Plain') +
+          ssCell('Days in month', 'Label') +
+          ssCell(data.daysInMonth, 'Plain', 'Number')
+        ),
+        ssRow(''),
+        ssRow(
+          ['Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location']
+            .map((h) => ssCell(h, 'Header'))
+            .join('')
+        ),
+        ...data.daysList.map((log) =>
+          ssRow(
+            ssCell(log.date) +
+            ssCell(log.day) +
+            ssCell(dashboardStatusText(log), dashboardStatusStyleId(log)) +
+            ssCell(log.markIn) +
+            ssCell(log.markOut) +
+            ssCell(log.duration) +
+            ssCell(log.loc)
+          )
+        ),
+      ];
+      return `<Worksheet ss:Name="${xmlEscape(sheet)}"><Table>${rows.join('')}</Table></Worksheet>`;
     });
 
-    reports.forEach(({ trainer, data }) => {
-      const chronological = [...data.daysList].reverse();
-      html += `<tr><td colspan="7" style="height:12px;border:none;"></td></tr>
-<tr><td colspan="7" style="background:#0f172a;color:#fff;font-size:14px;font-weight:800;padding:10px;">${escapeHtml(trainer.name)} (@${escapeHtml(trainer.username)}) — Daily attendance for ${escapeHtml(monthName)} ${selectedYear} (${data.daysInMonth} days)</td></tr>
-<tr>
-  <th style="${th}">Date</th>
-  <th style="${th}">Day</th>
-  <th style="${th}">Status</th>
-  <th style="${th}">Mark In</th>
-  <th style="${th}">Mark Out</th>
-  <th style="${th}">Duration</th>
-  <th style="${th}">Location / Reason</th>
-</tr>`;
-      chronological.forEach((log) => {
-        html += `<tr>
-          <td style="${td}">${escapeHtml(log.date)} ${selectedYear}</td>
-          <td style="${td}">${escapeHtml(log.day)}</td>
-          <td style="${td}${statusStyle(log.status)}text-align:center;">${escapeHtml(statusLabel(log.status))}</td>
-          <td style="${td}">${escapeHtml(log.markIn)}</td>
-          <td style="${td}">${escapeHtml(log.markOut)}</td>
-          <td style="${td}">${escapeHtml(log.duration)}</td>
-          <td style="${td}">${escapeHtml(log.loc)}</td>
-        </tr>`;
-      });
-      html += `<tr><td colspan="7" style="background:#f8fafc;font-weight:800;padding:8px;border:1px solid #cbd5e1;">SUMMARY — ${escapeHtml(trainer.name)}</td></tr>
-<tr>
-  ${summaryCell('Present', data.presentCount, '#bbf7d0')}
-  ${summaryCell('Half Day', data.halfDayCount, '#fed7aa')}
-  ${summaryCell('Pending', data.pendingCount, '#fde68a')}
-  ${summaryCell('Leave', data.leaveCount, '#fbcfe8')}
-  ${summaryCell('Absent', data.absentCount, '#fecaca')}
-  ${summaryCell('Week Off', data.weekOffCount, '#cbd5e1')}
-  ${summaryCell('Days in month', data.daysInMonth, '#dbeafe')}
-</tr>
-<tr>
-  <td colspan="3" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Total Hours: ${escapeHtml(data.totalHoursStr)}</td>
-  <td colspan="4" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Attendance %: ${escapeHtml(data.attPercent)}%</td>
-</tr>`;
-    });
+    const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${styles}
+<Worksheet ss:Name="Summary"><Table>${summaryRows.join('')}</Table></Worksheet>
+${trainerSheets.join('')}
+</Workbook>`;
 
-    html += `</table></body></html>`;
     return {
-      html,
+      xml,
       filename: `attendance-${monthName}-${selectedYear}.xls`,
     };
   };
@@ -439,8 +490,8 @@ br { mso-data-placement:same-cell; }
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const local = buildColorfulExcelHtml();
-      const blob = new Blob(['\uFEFF' + local.html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const local = buildDashboardExcelXml();
+      const blob = new Blob(['\uFEFF' + local.xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       downloadBlob(blob, local.filename);
     } finally {
       setExporting(false);
@@ -458,7 +509,7 @@ br { mso-data-placement:same-cell; }
       tsv += `SUMMARY -> Present Days: ${data.presentCount} | Half Days: ${data.halfDayCount} | Leave Days: ${data.leaveCount} | Total Hrs: ${data.totalHoursStr} | Attendance %: ${data.attPercent}%\n\n`;
       tsv += `Date\tDay\tStatus\tMark In\tMark Out\tDuration\tLocation\n`;
       data.daysList.forEach((log) => {
-        tsv += `${log.date} ${selectedYear}\t${log.day}\t${log.status.toUpperCase()}\t${log.markIn}\t${log.markOut}\t${log.duration}\t${log.loc}\n`;
+        tsv += `${log.date}\t${log.day}\t${dashboardStatusText(log)}\t${log.markIn}\t${log.markOut}\t${log.duration}\t${log.loc}\n`;
       });
       tsv += `\n--------------------------------------------------------\n\n`;
     });

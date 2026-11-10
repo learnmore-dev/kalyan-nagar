@@ -6,6 +6,20 @@ import { Batch, WorkSession, User } from './types';
 // ─────────────────────────────────────────────────────────────────────────────
 const DJANGO_WA_PROXY = '/api/whatsapp/bot';
 
+const ATTENDANCE_WHATSAPP_BROADCAST = false;
+
+function isAttendanceCheckInOutMessage(text: string) {
+  const t = (text || '').toLowerCase();
+  return (
+    t.includes('login time') ||
+    t.includes('logout time') ||
+    t.includes('check-in') ||
+    t.includes('check-out') ||
+    t.includes('check in') ||
+    t.includes('check out')
+  );
+}
+
 async function callBaileysSend(
   target: string,
   text: string,
@@ -13,6 +27,9 @@ async function callBaileysSend(
   attachment?: { document?: string; fileName?: string; mimeType?: string; image?: string }
 ): Promise<boolean> {
   if (!target) return false;
+  if (!ATTENDANCE_WHATSAPP_BROADCAST && isAttendanceCheckInOutMessage(text)) {
+    return false;
+  }
   try {
     const body: Record<string, unknown> = { action: 'send_message', target, text };
     if (attachment?.document) {
@@ -383,7 +400,7 @@ class WhatsAppService {
       `⏰ Time: ${timeStr}`,
     ].filter(Boolean).join('\n');
 
-    if (this.attendanceGroup.id) {
+    if (ATTENDANCE_WHATSAPP_BROADCAST && this.attendanceGroup.id) {
       try {
         await callBaileysSend(this.attendanceGroup.id, formattedTaskMsg, false);
       } catch { }
@@ -416,7 +433,7 @@ class WhatsAppService {
       `⏰ Time: ${timeStr}`,
     ].filter(Boolean).join('\n');
 
-    if (this.attendanceGroup.id) {
+    if (ATTENDANCE_WHATSAPP_BROADCAST && this.attendanceGroup.id) {
       try {
         await callBaileysSend(this.attendanceGroup.id, msg, false);
       } catch { }
