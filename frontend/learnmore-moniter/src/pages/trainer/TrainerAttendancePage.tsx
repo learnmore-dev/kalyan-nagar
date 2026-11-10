@@ -105,16 +105,15 @@ export default function TrainerAttendancePage() {
 
   const [viewPhotoUrl, setViewPhotoUrl] = useState<string | null>(null);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayLocal = new Date();
+  const todayStr = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
 
-  const fetchTrainerAttendanceData = async (userId: string) => {
+  const fetchTrainerAttendanceData = async (userId: string, month = selectedMonth) => {
     setLoading(true);
     try {
-      // Fetch today's record first (fast) + history in parallel
-      const todayStr2 = new Date().toISOString().split('T')[0];
       const [todayRes, historyRes] = await Promise.all([
-        fetch(`/api/attendance/?trainer_id=${userId}&date=${todayStr2}`),
-        fetch(`/api/attendance/?trainer_id=${userId}&limit=90`),
+        fetch(`/api/attendance/?trainer_id=${userId}&date=${todayStr}`),
+        fetch(`/api/attendance/?trainer_id=${userId}&month=${month}`),
       ]);
       const [todayData, historyData] = await Promise.all([
         todayRes.json(),
@@ -139,9 +138,9 @@ export default function TrainerAttendancePage() {
     const u = getStoredUser();
     setUser(u);
     if (u) {
-      fetchTrainerAttendanceData(u.id);
+      fetchTrainerAttendanceData(u.id, selectedMonth);
     }
-  }, []);
+  }, [selectedMonth]);
 
   const handleOpenCapture = (action: 'in' | 'out') => {
     setCaptureAction(action);

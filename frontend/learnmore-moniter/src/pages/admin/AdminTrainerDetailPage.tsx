@@ -50,7 +50,10 @@ export default function AdminTrainerDetailPage() {
   const [data, setData] = useState<FullProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'batches' | 'attendance' | 'sessions' | 'leaves'>('batches');
-  const [selectedMonth, setSelectedMonth] = useState('2026-08');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [viewPhotoUrl, setViewPhotoUrl] = useState<string | null>(null);
 
   // Edit Phone State
