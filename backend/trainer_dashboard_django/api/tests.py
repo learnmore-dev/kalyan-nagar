@@ -204,7 +204,7 @@ class ExportAttendanceTests(TestCase):
             total_work_minutes=570,
         )
 
-    def test_export_returns_csv_attachment_for_selected_month(self):
+    def test_export_returns_colorful_excel_with_daily_rows_and_summary(self):
         request = self.factory.get('/api/export-attendance/', {
             'month': '10',
             'year': '2026',
@@ -215,9 +215,14 @@ class ExportAttendanceTests(TestCase):
         response = export_attendance_view(request)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('text/csv', response['Content-Type'])
-        self.assertIn('attendance-October-2026.csv', response['Content-Disposition'])
+        self.assertIn('excel', response['Content-Type'])
+        self.assertIn('attendance-October-2026.xls', response['Content-Disposition'])
         body = response.content.decode('utf-8-sig')
+        self.assertIn('ALL TRAINERS SUMMARY', body)
         self.assertIn('Export Trainer', body)
         self.assertIn('2026-10-05', body)
         self.assertIn('PRESENT', body)
+        self.assertIn('WEEK OFF', body)
+        self.assertIn('SUMMARY — Export Trainer', body)
+        self.assertIn('Days in month', body)
+        self.assertIn('31', body)

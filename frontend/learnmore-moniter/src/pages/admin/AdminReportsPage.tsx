@@ -280,12 +280,17 @@ export default function AdminReportsPage() {
       incentiveTier = 'Standard (≤ 5h)';
     }
 
+    const weekOffCount = daysList.filter((d) => d.status === 'week_off').length;
+
     return {
       daysList,
       presentCount,
       pendingCount,
       halfDayCount,
       leaveCount,
+      absentCount,
+      weekOffCount,
+      daysInMonth,
       totalHoursStr,
       attPercent,
       isAttQualified,
@@ -301,14 +306,37 @@ export default function AdminReportsPage() {
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const csvCell = (value: string | number) => {
-    const s = String(value ?? '');
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
+  const escapeHtml = (value: string | number) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  const statusStyle = (status: string) => {
+    switch (String(status).toLowerCase()) {
+      case 'present':
+        return 'background:#16a34a;color:#ffffff;font-weight:700;';
+      case 'half_day':
+        return 'background:#f97316;color:#ffffff;font-weight:700;';
+      case 'pending':
+        return 'background:#eab308;color:#422006;font-weight:700;';
+      case 'leave':
+        return 'background:#db2777;color:#ffffff;font-weight:700;';
+      case 'absent':
+        return 'background:#dc2626;color:#ffffff;font-weight:700;';
+      case 'week_off':
+        return 'background:#64748b;color:#ffffff;font-weight:700;';
+      case 'holiday':
+        return 'background:#7c3aed;color:#ffffff;font-weight:700;';
+      default:
+        return 'background:#e2e8f0;color:#334155;font-weight:700;';
+    }
   };
 
-  const downloadCsvFile = (csv: string, filename: string) => {
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const statusLabel = (status: string) => String(status || '').replace(/_/g, ' ').toUpperCase();
+
+  const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -319,60 +347,101 @@ export default function AdminReportsPage() {
     URL.revokeObjectURL(url);
   };
 
-  const buildLocalCsv = () => {
+  const buildColorfulExcelHtml = () => {
     const monthName = MONTH_NAMES[selectedMonth - 1];
-    const lines: string[] = [
-      [csvCell('MONTHLY ATTENDANCE REPORT'), csvCell(`${monthName} ${selectedYear}`)].join(','),
-      '',
-      ['Trainer', 'Username', 'Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location']
-        .map(csvCell)
-        .join(','),
-    ];
-    activeTrainers.forEach((trainer) => {
-      const data = getMonthReportData(trainer);
-      data.daysList.forEach((log) => {
-        lines.push(
-          [
-            trainer.name,
-            trainer.username,
-            `${log.date} ${selectedYear}`,
-            log.day,
-            String(log.status).toUpperCase(),
-            log.markIn,
-            log.markOut,
-            log.duration,
-            log.loc,
-          ]
-            .map(csvCell)
-            .join(',')
-        );
-      });
+    const reports = activeTrainers.map((trainer) => ({
+      trainer,
+      data: getMonthReportData(trainer),
+    }));
+
+    const th = 'background:#0f172a;color:#fff;font-weight:700;padding:6px 8px;border:1px solid #1e293b;';
+    const td = 'padding:5px 8px;border:1px solid #cbd5e1;';
+    const summaryCell = (label: string, value: number | string, bg: string) =>
+      `<td style="padding:8px 10px;border:1px solid #cbd5e1;background:${bg};color:#0f172a;font-weight:700;text-align:center;">${escapeHtml(label)}<br/><span style="font-size:16px;">${escapeHtml(value)}</span></td>`;
+
+    let html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8" />
+<style>
+br { mso-data-placement:same-cell; }
+</style>
+</head><body>
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;width:100%;">
+<tr><td colspan="7" style="background:#1d4ed8;color:#fff;font-size:18px;font-weight:800;padding:12px;">MONTHLY ATTENDANCE REPORT — ${escapeHtml(monthName)} ${selectedYear}</td></tr>
+<tr><td colspan="7" style="padding:8px 0 4px;font-size:14px;font-weight:800;color:#0f172a;">ALL TRAINERS SUMMARY</td></tr>
+<tr>
+  <th style="${th}">Trainer</th>
+  <th style="${th}">Present</th>
+  <th style="${th}">Half Day</th>
+  <th style="${th}">Pending</th>
+  <th style="${th}">Leave</th>
+  <th style="${th}">Absent</th>
+  <th style="${th}">Week Off</th>
+</tr>`;
+
+    reports.forEach(({ trainer, data }) => {
+      html += `<tr>
+        <td style="${td}font-weight:700;">${escapeHtml(trainer.name)} (@${escapeHtml(trainer.username)})</td>
+        <td style="${td}${statusStyle('present')}text-align:center;">${data.presentCount}</td>
+        <td style="${td}${statusStyle('half_day')}text-align:center;">${data.halfDayCount}</td>
+        <td style="${td}${statusStyle('pending')}text-align:center;">${data.pendingCount}</td>
+        <td style="${td}${statusStyle('leave')}text-align:center;">${data.leaveCount}</td>
+        <td style="${td}${statusStyle('absent')}text-align:center;">${data.absentCount}</td>
+        <td style="${td}${statusStyle('week_off')}text-align:center;">${data.weekOffCount}</td>
+      </tr>`;
     });
-    return { csv: lines.join('\n'), filename: `attendance-${monthName}-${selectedYear}.csv` };
+
+    reports.forEach(({ trainer, data }) => {
+      const chronological = [...data.daysList].reverse();
+      html += `<tr><td colspan="7" style="height:12px;border:none;"></td></tr>
+<tr><td colspan="7" style="background:#0f172a;color:#fff;font-size:14px;font-weight:800;padding:10px;">${escapeHtml(trainer.name)} (@${escapeHtml(trainer.username)}) — Daily attendance for ${escapeHtml(monthName)} ${selectedYear} (${data.daysInMonth} days)</td></tr>
+<tr>
+  <th style="${th}">Date</th>
+  <th style="${th}">Day</th>
+  <th style="${th}">Status</th>
+  <th style="${th}">Mark In</th>
+  <th style="${th}">Mark Out</th>
+  <th style="${th}">Duration</th>
+  <th style="${th}">Location / Reason</th>
+</tr>`;
+      chronological.forEach((log) => {
+        html += `<tr>
+          <td style="${td}">${escapeHtml(log.date)} ${selectedYear}</td>
+          <td style="${td}">${escapeHtml(log.day)}</td>
+          <td style="${td}${statusStyle(log.status)}text-align:center;">${escapeHtml(statusLabel(log.status))}</td>
+          <td style="${td}">${escapeHtml(log.markIn)}</td>
+          <td style="${td}">${escapeHtml(log.markOut)}</td>
+          <td style="${td}">${escapeHtml(log.duration)}</td>
+          <td style="${td}">${escapeHtml(log.loc)}</td>
+        </tr>`;
+      });
+      html += `<tr><td colspan="7" style="background:#f8fafc;font-weight:800;padding:8px;border:1px solid #cbd5e1;">SUMMARY — ${escapeHtml(trainer.name)}</td></tr>
+<tr>
+  ${summaryCell('Present', data.presentCount, '#bbf7d0')}
+  ${summaryCell('Half Day', data.halfDayCount, '#fed7aa')}
+  ${summaryCell('Pending', data.pendingCount, '#fde68a')}
+  ${summaryCell('Leave', data.leaveCount, '#fbcfe8')}
+  ${summaryCell('Absent', data.absentCount, '#fecaca')}
+  ${summaryCell('Week Off', data.weekOffCount, '#cbd5e1')}
+  ${summaryCell('Days in month', data.daysInMonth, '#dbeafe')}
+</tr>
+<tr>
+  <td colspan="3" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Total Hours: ${escapeHtml(data.totalHoursStr)}</td>
+  <td colspan="4" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Attendance %: ${escapeHtml(data.attPercent)}%</td>
+</tr>`;
+    });
+
+    html += `</table></body></html>`;
+    return {
+      html,
+      filename: `attendance-${monthName}-${selectedYear}.xls`,
+    };
   };
 
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const res = await fetch(exportUrl);
-      const contentType = res.headers.get('content-type') || '';
-      if (res.ok && (contentType.includes('csv') || contentType.includes('excel') || contentType.includes('octet-stream'))) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `attendance-${MONTH_NAMES[selectedMonth - 1]}-${selectedYear}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        return;
-      }
-      const local = buildLocalCsv();
-      downloadCsvFile(local.csv, local.filename);
-    } catch {
-      const local = buildLocalCsv();
-      downloadCsvFile(local.csv, local.filename);
+      const local = buildColorfulExcelHtml();
+      const blob = new Blob(['\uFEFF' + local.html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      downloadBlob(blob, local.filename);
     } finally {
       setExporting(false);
     }
@@ -397,8 +466,6 @@ export default function AdminReportsPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
-
-  const exportUrl = `/api/export-attendance?month=${selectedMonth}&year=${selectedYear}${selectedTrainer !== 'all' ? `&trainer=${selectedTrainer}` : ''}`;
 
   return (
     <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
