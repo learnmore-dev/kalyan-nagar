@@ -18,8 +18,9 @@ export default function AdminReportsPage() {
   const [trainers, setTrainers] = useState<User[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [selectedTrainer, setSelectedTrainer] = useState<string>('all');
-  const [selectedMonth, setSelectedMonth] = useState<number>(7); // July by default
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const now = new Date();
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [attendances, setAttendances] = useState<TrainerAttendance[]>([]);
   const [leaves, setLeaves] = useState<Leave[]>([]);
   const [, setLoading] = useState(false);
@@ -38,8 +39,9 @@ export default function AdminReportsPage() {
   const fetchReports = async () => {
     setLoading(true);
     try {
+      const monthParam = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
       const [attRes, leaveRes] = await Promise.all([
-        fetch('/api/attendance/'),
+        fetch(`/api/attendance/?month=${monthParam}`),
         fetch('/api/leaves/'),
       ]);
       const attData = await attRes.json();
@@ -56,7 +58,7 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [selectedMonth, selectedYear]);
 
   const activeTrainers = selectedTrainer === 'all'
     ? trainers
@@ -73,11 +75,14 @@ export default function AdminReportsPage() {
     let absentCount = 0;
     let totalMinutes = 0;
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const trainerKey = String(trainer.id);
 
-    const trainerAtts = attendances.filter(
-      (a) => a.trainer_id === trainer.id || (a as any).trainer === trainer.id
-    );
+    const trainerAtts = attendances.filter((a) => {
+      const tid = String((a as any).trainer_id ?? (a as any).trainer ?? '');
+      return tid === trainerKey;
+    });
     const trainerLeaves = leaves.filter(
       (l) => l.trainer_id === trainer.id || (l as any).trainer === trainer.id
     );
@@ -92,7 +97,7 @@ export default function AdminReportsPage() {
       const dateFormatted = `${day} ${MONTH_NAMES[selectedMonth - 1].substring(0, 3)}`;
       const isSunday = dayOfWeek === 'Sun';
 
-      const attRecord = trainerAtts.find((a) => a.date === fullDateStr);
+      const attRecord = trainerAtts.find((a) => String(a.date || '').slice(0, 10) === fullDateStr);
       const leaveRecord = trainerLeaves.find(
         (l) => l.start_date <= fullDateStr && l.end_date >= fullDateStr && l.status !== 'rejected'
       );
@@ -294,6 +299,85 @@ export default function AdminReportsPage() {
   };
 
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const csvCell = (value: string | number) => {
+    const s = String(value ?? '');
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const downloadCsvFile = (csv: string, filename: string) => {
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const buildLocalCsv = () => {
+    const monthName = MONTH_NAMES[selectedMonth - 1];
+    const lines: string[] = [
+      [csvCell('MONTHLY ATTENDANCE REPORT'), csvCell(`${monthName} ${selectedYear}`)].join(','),
+      '',
+      ['Trainer', 'Username', 'Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location']
+        .map(csvCell)
+        .join(','),
+    ];
+    activeTrainers.forEach((trainer) => {
+      const data = getMonthReportData(trainer);
+      data.daysList.forEach((log) => {
+        lines.push(
+          [
+            trainer.name,
+            trainer.username,
+            `${log.date} ${selectedYear}`,
+            log.day,
+            String(log.status).toUpperCase(),
+            log.markIn,
+            log.markOut,
+            log.duration,
+            log.loc,
+          ]
+            .map(csvCell)
+            .join(',')
+        );
+      });
+    });
+    return { csv: lines.join('\n'), filename: `attendance-${monthName}-${selectedYear}.csv` };
+  };
+
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(exportUrl);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && (contentType.includes('csv') || contentType.includes('excel') || contentType.includes('octet-stream'))) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `attendance-${MONTH_NAMES[selectedMonth - 1]}-${selectedYear}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const local = buildLocalCsv();
+      downloadCsvFile(local.csv, local.filename);
+    } catch {
+      const local = buildLocalCsv();
+      downloadCsvFile(local.csv, local.filename);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleCopyForExcel = () => {
     let tsv = `========================================================\n`;
     tsv += `MONTHLY ATTENDANCE SUMMARY REPORT (${MONTH_NAMES[selectedMonth - 1].toUpperCase()} ${selectedYear})\n`;
@@ -336,13 +420,14 @@ export default function AdminReportsPage() {
               {copied ? '✅ Copied to Clipboard!' : '📋 Copy for Excel'}
             </button>
 
-            <a
-              href={exportUrl}
-              download
-              className="px-5 py-2.5 rounded-xl bg-[#28a745] hover:bg-[#218838] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={exporting}
+              className="px-5 py-2.5 rounded-xl bg-[#28a745] hover:bg-[#218838] text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-60"
             >
-              <Download className="h-4 w-4" /> 📥 Export Excel
-            </a>
+              <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : '📥 Export Excel'}
+            </button>
           </div>
         </div>
 

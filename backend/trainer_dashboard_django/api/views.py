@@ -859,6 +859,8 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         trainer_id = request.query_params.get('trainer_id')
         date       = request.query_params.get('date')
+        month      = request.query_params.get('month')
+        year       = request.query_params.get('year')
         today_only = request.query_params.get('today') == 'true'
 
         queryset = self.get_queryset()
@@ -867,15 +869,35 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
             from django.db.models import Q
             queryset = queryset.filter(Q(trainer_id=trainer_id) | Q(trainer__username=trainer_id))
 
+        month_prefix = None
+        if month:
+            month = str(month).strip()
+            if len(month) >= 7 and month[4] == '-':
+                month_prefix = month[:7]
+            elif year:
+                month_prefix = f"{year}-{int(month):02d}"
+            elif len(month) <= 2:
+                month_prefix = f"{timezone.localtime(timezone.now()).year}-{int(month):02d}"
+            else:
+                month_prefix = month
+
         if date:
             queryset = queryset.filter(date=date)
         elif today_only:
             today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
             queryset = queryset.filter(date=today_str)
+        elif month_prefix:
+            queryset = queryset.filter(date__startswith=month_prefix)
+        elif year:
+            queryset = queryset.filter(date__startswith=str(year))
 
-        # Limit records — no need to send full history in one shot
-        limit = int(request.query_params.get('limit', 90))
-        queryset = queryset[:limit]
+        # Default cap is for live dashboards. Month/year reports need the full month
+        # (otherwise older days look empty/absent because only the latest 90 rows return).
+        if 'limit' in request.query_params:
+            limit = int(request.query_params.get('limit', 90))
+            queryset = queryset[:limit]
+        elif not month_prefix and not year and not date and not today_only:
+            queryset = queryset[:90]
 
         serializer = self.get_serializer(queryset, many=True)
         return Response({'success': True, 'attendances': serializer.data})
@@ -1951,6 +1973,146 @@ def reports_summary_view(request):
         })
 
     return Response({'success': True, 'reports': reports})
+
+
+def _time_to_minutes(t_str):
+    if not t_str:
+        return None
+    s = str(t_str).strip()
+    if 'T' in s:
+        s = s.split('T', 1)[1]
+    s = s.replace('Z', '')
+    if '+' in s:
+        s = s.split('+', 1)[0]
+    if ':' in s:
+        parts = s.split(':')
+        try:
+            return int(parts[0]) * 60 + int(parts[1])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+@api_view(['GET'])
+def export_attendance_view(request):
+    """
+    Download a month's trainer attendance as an Excel-friendly CSV.
+    GET /api/export-attendance/?month=10&year=2026&trainer=<id>
+    """
+    import calendar
+    import csv
+    from datetime import date as date_cls
+    from django.http import HttpResponse
+
+    try:
+        month = int(request.query_params.get('month') or timezone.localtime(timezone.now()).month)
+        year = int(request.query_params.get('year') or timezone.localtime(timezone.now()).year)
+    except (TypeError, ValueError):
+        return Response({'success': False, 'error': 'Invalid month or year'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if month < 1 or month > 12:
+        return Response({'success': False, 'error': 'Month must be 1-12'}, status=status.HTTP_400_BAD_REQUEST)
+
+    trainer_id = request.query_params.get('trainer') or request.query_params.get('trainer_id')
+    trainers = UserProfile.objects.filter(role='trainer').order_by('name')
+    if trainer_id:
+        trainers = trainers.filter(Q(id=trainer_id) | Q(username=trainer_id))
+
+    month_prefix = f'{year}-{month:02d}'
+    days_in_month = calendar.monthrange(year, month)[1]
+    today_str = timezone.localtime(timezone.now()).strftime('%Y-%m-%d')
+    month_name = calendar.month_name[month]
+
+    attendances = TrainerAttendance.objects.filter(date__startswith=month_prefix)
+    leaves = Leave.objects.exclude(status='rejected')
+
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    filename = f'attendance-{month_name}-{year}.csv'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.write('\ufeff')
+    writer = csv.writer(response)
+    writer.writerow([f'MONTHLY ATTENDANCE REPORT', f'{month_name} {year}'])
+    writer.writerow([])
+    writer.writerow(['Trainer', 'Username', 'Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location'])
+
+    for trainer in trainers:
+        trainer_atts = {
+            str(a.date)[:10]: a
+            for a in attendances
+            if str(a.trainer_id) == str(trainer.id)
+        }
+        trainer_leaves = [
+            l for l in leaves
+            if str(l.trainer_id) == str(trainer.id)
+        ]
+
+        for day in range(1, days_in_month + 1):
+            full_date = f'{year}-{month:02d}-{day:02d}'
+            weekday = date_cls(year, month, day).strftime('%a')
+            att = trainer_atts.get(full_date)
+            leave = next(
+                (l for l in trainer_leaves if str(l.start_date)[:10] <= full_date <= str(l.end_date)[:10]),
+                None,
+            )
+
+            status_label = 'PENDING'
+            mark_in = '--'
+            mark_out = '--'
+            duration = '--'
+            location = '--'
+
+            in_time = att.mark_in_time if att else None
+            out_time = att.mark_out_time if att else None
+            if att and in_time:
+                mark_in = str(in_time)
+                if not out_time:
+                    status_label = 'PENDING'
+                    mark_out = 'Pending'
+                    location = att.location_name or 'Live GPS Location'
+                else:
+                    mark_out = str(out_time)
+                    dur_minutes = att.total_work_minutes or 0
+                    if not dur_minutes:
+                        in_m = _time_to_minutes(in_time)
+                        out_m = _time_to_minutes(out_time)
+                        if in_m is not None and out_m is not None:
+                            dur_minutes = out_m - in_m
+                            if dur_minutes < 0:
+                                dur_minutes += 24 * 60
+                    duration = f'{dur_minutes // 60}h {dur_minutes % 60}m'
+                    location = att.location_name or 'Institute Lab'
+                    if dur_minutes < 300:
+                        status_label = 'LEAVE'
+                        location = f'{location} (Short Duty <5h)'
+                    elif dur_minutes < 540:
+                        status_label = 'HALF_DAY'
+                    else:
+                        status_label = 'PRESENT'
+            elif leave or (att and att.day_status == 'leave'):
+                status_label = 'LEAVE'
+                location = leave.reason if leave else 'Approved Leave'
+            elif weekday == 'Sun':
+                status_label = 'WEEK_OFF'
+                location = 'Sunday Week Off'
+            elif full_date < today_str:
+                status_label = 'ABSENT'
+                location = 'No Attendance Recorded'
+            else:
+                status_label = 'PENDING'
+
+            writer.writerow([
+                trainer.name,
+                trainer.username,
+                full_date,
+                weekday,
+                status_label,
+                mark_in,
+                mark_out,
+                duration,
+                location,
+            ])
+
+    return response
 
 
 @api_view(['GET'])
