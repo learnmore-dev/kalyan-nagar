@@ -50,6 +50,8 @@ from .serializers import (
 
 
 BAILEYS_URL = 'http://127.0.0.1:5002'
+# Trainer check-in / check-out stays in the attendance portal only.
+ATTENDANCE_WHATSAPP_BROADCAST = False
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -948,6 +950,10 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(attendance)
 
+        # Do not send check-in to WhatsApp groups. Record stays in the portal.
+        if ATTENDANCE_WHATSAPP_BROADCAST:
+            pass
+
         return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-In recorded successfully'})
 
     @action(detail=False, methods=['post'], url_path='check-out')
@@ -996,6 +1002,9 @@ class TrainerAttendanceViewSet(viewsets.ModelViewSet):
             attendance.save()
 
             serializer = self.get_serializer(attendance)
+            # Do not send check-out to WhatsApp groups. Record stays in the portal.
+            if ATTENDANCE_WHATSAPP_BROADCAST:
+                pass
             return Response({'success': True, 'attendance': serializer.data, 'message': 'Check-Out recorded successfully'})
         
         return Response({'success': False, 'error': 'No active Check-In found for today'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1592,6 +1601,12 @@ def whatsapp_bot_gateway(request):
             if not target:
                 return Response({'success': False, 'error': 'target is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+            lowered = (text or '').lower()
+            if not ATTENDANCE_WHATSAPP_BROADCAST and any(token in lowered for token in (
+                'login time', 'logout time', 'check-in', 'check-out', 'check in', 'check out',
+            )):
+                return Response({'success': True, 'sent': False, 'skipped': 'attendance_whatsapp_disabled'})
+
             payload = {'target': target, 'text': text}
             if document:
                 payload['document'] = document
@@ -1993,18 +2008,6 @@ def _time_to_minutes(t_str):
     return None
 
 
-def _attendance_status_style(status):
-    return {
-        'PRESENT': 'background:#16a34a;color:#ffffff;font-weight:700;',
-        'HALF_DAY': 'background:#f97316;color:#ffffff;font-weight:700;',
-        'PENDING': 'background:#eab308;color:#422006;font-weight:700;',
-        'LEAVE': 'background:#db2777;color:#ffffff;font-weight:700;',
-        'ABSENT': 'background:#dc2626;color:#ffffff;font-weight:700;',
-        'WEEK_OFF': 'background:#64748b;color:#ffffff;font-weight:700;',
-        'HOLIDAY': 'background:#7c3aed;color:#ffffff;font-weight:700;',
-    }.get(status, 'background:#e2e8f0;color:#334155;font-weight:700;')
-
-
 @api_view(['GET'])
 def export_attendance_view(request):
     """
@@ -2041,15 +2044,21 @@ def export_attendance_view(request):
 
     trainer_blocks = []
     for trainer in trainers:
+        def belongs_to_trainer(row):
+            tid = str(getattr(row, 'trainer_id', '') or '')
+            tname = str(getattr(row, 'trainer_name', '') or '').strip().lower()
+            return (
+                tid == str(trainer.id) or
+                tid == str(trainer.username) or
+                (trainer.name and tname == trainer.name.strip().lower())
+            )
+
         trainer_atts = {
             str(a.date)[:10]: a
             for a in attendances
-            if str(a.trainer_id) == str(trainer.id)
+            if belongs_to_trainer(a)
         }
-        trainer_leaves = [
-            l for l in leaves
-            if str(l.trainer_id) == str(trainer.id)
-        ]
+        trainer_leaves = [l for l in leaves if belongs_to_trainer(l)]
         days = []
         counts = {
             'PRESENT': 0, 'HALF_DAY': 0, 'PENDING': 0,
@@ -2113,10 +2122,19 @@ def export_attendance_view(request):
                 status_label = 'PENDING'
 
             counts[status_label] = counts.get(status_label, 0) + 1
+            display_status = {
+                'PRESENT': 'Present',
+                'HALF_DAY': 'Half Day',
+                'PENDING': 'Pending',
+                'LEAVE': 'Leave (Approved)',
+                'ABSENT': 'Absent',
+                'WEEK_OFF': 'Week Off',
+            }.get(status_label, status_label)
             days.append({
-                'date': full_date,
+                'date': f'{day} {month_name[:3]}',
                 'weekday': weekday,
-                'status': status_label,
+                'status': display_status,
+                'style': status_label,
                 'mark_in': mark_in,
                 'mark_out': mark_out,
                 'duration': duration,
@@ -2135,80 +2153,113 @@ def export_attendance_view(request):
             'att_percent': f'{att_percent:.2f}',
         })
 
-    th = 'background:#0f172a;color:#fff;font-weight:700;padding:6px 8px;border:1px solid #1e293b;'
-    td = 'padding:5px 8px;border:1px solid #cbd5e1;'
+    def cell(text, style='Plain', type_='String'):
+        return f'<Cell ss:StyleID="{style}"><Data ss:Type="{type_}">{esc(str(text))}</Data></Cell>'
 
-    def summary_cell(label, value, bg):
-        return (
-            f'<td style="padding:8px 10px;border:1px solid #cbd5e1;background:{bg};'
-            f'color:#0f172a;font-weight:700;text-align:center;">{esc(label)}<br/>'
-            f'<span style="font-size:16px;">{esc(str(value))}</span></td>'
-        )
+    def row(cells):
+        return f'<Row>{cells}</Row>'
 
-    rows = [
-        '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8" /></head><body>',
-        '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:12px;width:100%;">',
-        f'<tr><td colspan="7" style="background:#1d4ed8;color:#fff;font-size:18px;font-weight:800;padding:12px;">MONTHLY ATTENDANCE REPORT — {esc(month_name)} {year}</td></tr>',
-        '<tr><td colspan="7" style="padding:8px 0 4px;font-size:14px;font-weight:800;">ALL TRAINERS SUMMARY</td></tr>',
-        f'<tr><th style="{th}">Trainer</th><th style="{th}">Present</th><th style="{th}">Half Day</th>'
-        f'<th style="{th}">Pending</th><th style="{th}">Leave</th><th style="{th}">Absent</th>'
-        f'<th style="{th}">Week Off</th></tr>',
+    def sheet_name(raw, used):
+        cleaned = ''.join(ch if ch not in '\\/?*[]' else ' ' for ch in (raw or 'Trainer')).strip() or 'Trainer'
+        base = cleaned[:31]
+        name = base
+        i = 2
+        while name.lower() in used:
+            suffix = f' {i}'
+            name = f'{base[:31 - len(suffix)]}{suffix}'
+            i += 1
+        used.add(name.lower())
+        return name
+
+    style_map = {
+        'PRESENT': 'Present',
+        'HALF_DAY': 'HalfDay',
+        'PENDING': 'Pending',
+        'LEAVE': 'LeaveApproved',
+        'ABSENT': 'Absent',
+        'WEEK_OFF': 'WeekOff',
+    }
+
+    used_names = {'summary'}
+    summary_rows = [
+        row(f'<Cell ss:StyleID="Title" ss:MergeAcross="8"><Data ss:Type="String">{esc(f"MONTHLY ATTENDANCE REPORT — {month_name} {year}")}</Data></Cell>'),
+        row(f'<Cell ss:StyleID="Section" ss:MergeAcross="8"><Data ss:Type="String">ALL TRAINERS SUMMARY</Data></Cell>'),
+        row(''.join(cell(h, 'Header') for h in ['Trainer', 'Present', 'Half Day', 'Pending', 'Leave', 'Absent', 'Week Off', 'Total Hrs', 'Attendance %'])),
     ]
-
     for block in trainer_blocks:
         c = block['counts']
-        rows.append(
-            f'<tr><td style="{td}font-weight:700;">{esc(block["name"])} (@{esc(block["username"])})</td>'
-            f'<td style="{td}{_attendance_status_style("PRESENT")}text-align:center;">{c["PRESENT"]}</td>'
-            f'<td style="{td}{_attendance_status_style("HALF_DAY")}text-align:center;">{c["HALF_DAY"]}</td>'
-            f'<td style="{td}{_attendance_status_style("PENDING")}text-align:center;">{c["PENDING"]}</td>'
-            f'<td style="{td}{_attendance_status_style("LEAVE")}text-align:center;">{c["LEAVE"]}</td>'
-            f'<td style="{td}{_attendance_status_style("ABSENT")}text-align:center;">{c["ABSENT"]}</td>'
-            f'<td style="{td}{_attendance_status_style("WEEK_OFF")}text-align:center;">{c["WEEK_OFF"]}</td></tr>'
-        )
+        summary_rows.append(row(
+            cell(f'{block["name"]} (@{block["username"]})') +
+            cell(c['PRESENT'], 'Present', 'Number') +
+            cell(c['HALF_DAY'], 'HalfDay', 'Number') +
+            cell(c['PENDING'], 'Pending', 'Number') +
+            cell(c['LEAVE'], 'LeaveApproved', 'Number') +
+            cell(c['ABSENT'], 'Absent', 'Number') +
+            cell(c['WEEK_OFF'], 'WeekOff', 'Number') +
+            cell(block['hours'], 'Hours') +
+            cell(f'{block["att_percent"]}%', 'Att')
+        ))
 
+    worksheets = [
+        f'<Worksheet ss:Name="Summary"><Table>{"".join(summary_rows)}</Table></Worksheet>'
+    ]
     for block in trainer_blocks:
         c = block['counts']
-        rows.append(f'<tr><td colspan="7" style="height:12px;border:none;"></td></tr>')
-        rows.append(
-            f'<tr><td colspan="7" style="background:#0f172a;color:#fff;font-size:14px;font-weight:800;padding:10px;">'
-            f'{esc(block["name"])} (@{esc(block["username"])}) — Daily attendance for {esc(month_name)} {year} ({days_in_month} days)</td></tr>'
-        )
-        rows.append(
-            f'<tr><th style="{th}">Date</th><th style="{th}">Day</th><th style="{th}">Status</th>'
-            f'<th style="{th}">Mark In</th><th style="{th}">Mark Out</th><th style="{th}">Duration</th>'
-            f'<th style="{th}">Location / Reason</th></tr>'
-        )
-        for day in block['days']:
-            rows.append(
-                f'<tr><td style="{td}">{esc(day["date"])}</td><td style="{td}">{esc(day["weekday"])}</td>'
-                f'<td style="{td}{_attendance_status_style(day["status"])}text-align:center;">{esc(day["status"].replace("_", " "))}</td>'
-                f'<td style="{td}">{esc(day["mark_in"])}</td><td style="{td}">{esc(day["mark_out"])}</td>'
-                f'<td style="{td}">{esc(day["duration"])}</td><td style="{td}">{esc(day["location"])}</td></tr>'
-            )
-        rows.append(
-            f'<tr><td colspan="7" style="background:#f8fafc;font-weight:800;padding:8px;border:1px solid #cbd5e1;">SUMMARY — {esc(block["name"])}</td></tr>'
-        )
-        rows.append(
-            '<tr>'
-            + summary_cell('Present', c['PRESENT'], '#bbf7d0')
-            + summary_cell('Half Day', c['HALF_DAY'], '#fed7aa')
-            + summary_cell('Pending', c['PENDING'], '#fde68a')
-            + summary_cell('Leave', c['LEAVE'], '#fbcfe8')
-            + summary_cell('Absent', c['ABSENT'], '#fecaca')
-            + summary_cell('Week Off', c['WEEK_OFF'], '#cbd5e1')
-            + summary_cell('Days in month', days_in_month, '#dbeafe')
-            + '</tr>'
-        )
-        rows.append(
-            f'<tr><td colspan="3" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Total Hours: {esc(block["hours"])}</td>'
-            f'<td colspan="4" style="padding:8px;border:1px solid #cbd5e1;background:#ecfeff;font-weight:700;">Attendance %: {esc(block["att_percent"])}%</td></tr>'
-        )
+        name = sheet_name(block['name'], used_names)
+        daily = list(reversed(block['days']))
+        trainer_title = esc(f"{block['name']} (@{block['username']}) — {month_name} {year}")
+        trows = [
+            row(f'<Cell ss:StyleID="Title" ss:MergeAcross="6"><Data ss:Type="String">{trainer_title}</Data></Cell>'),
+            row(''.join(cell(h, 'Header') for h in ['Present', 'Half Day', 'Pending', 'Leave', 'Absent', 'Week Off', 'Total Hrs'])),
+            row(
+                cell(c['PRESENT'], 'Present', 'Number') +
+                cell(c['HALF_DAY'], 'HalfDay', 'Number') +
+                cell(c['PENDING'], 'Pending', 'Number') +
+                cell(c['LEAVE'], 'LeaveApproved', 'Number') +
+                cell(c['ABSENT'], 'Absent', 'Number') +
+                cell(c['WEEK_OFF'], 'WeekOff', 'Number') +
+                cell(block['hours'], 'Hours')
+            ),
+            row(''.join(cell(h, 'Header') for h in ['Date', 'Day', 'Status', 'Mark In', 'Mark Out', 'Duration', 'Location'])),
+        ]
+        for day in daily:
+            trows.append(row(
+                cell(day['date']) +
+                cell(day['weekday']) +
+                cell(day['status'], style_map.get(day['style'], 'Plain')) +
+                cell(day['mark_in']) +
+                cell(day['mark_out']) +
+                cell(day['duration']) +
+                cell(day['location'])
+            ))
+        worksheets.append(f'<Worksheet ss:Name="{esc(name)}"><Table>{"".join(trows)}</Table></Worksheet>')
 
-    rows.append('</table></body></html>')
-    html_body = '\ufeff' + ''.join(rows)
+    xml_body = (
+        '<?xml version="1.0"?>'
+        '<?mso-application progid="Excel.Sheet"?>'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"'
+        ' xmlns:o="urn:schemas-microsoft-com:office:office"'
+        ' xmlns:x="urn:schemas-microsoft-com:office:excel"'
+        ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'
+        '<Styles>'
+        '<Style ss:ID="Plain"><Font ss:FontName="Calibri" ss:Size="11"/></Style>'
+        '<Style ss:ID="Title"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="16"/><Interior ss:Color="#1D4ED8" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Section"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F172A" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#2D3748" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Present"><Font ss:Bold="1" ss:Color="#065F46"/><Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="HalfDay"><Font ss:Bold="1" ss:Color="#9A3412"/><Interior ss:Color="#FFEDD5" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Pending"><Font ss:Bold="1" ss:Color="#92400E"/><Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="LeaveApproved"><Font ss:Bold="1" ss:Color="#6B21A8"/><Interior ss:Color="#F3E8FF" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Absent"><Font ss:Bold="1" ss:Color="#9F1239"/><Interior ss:Color="#FFE4E6" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="WeekOff"><Font ss:Bold="1" ss:Color="#475569"/><Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Hours"><Font ss:Bold="1" ss:Color="#0E7490"/><Interior ss:Color="#CFFAFE" ss:Pattern="Solid"/></Style>'
+        '<Style ss:ID="Att"><Font ss:Bold="1" ss:Color="#6B21A8"/><Interior ss:Color="#F3E8FF" ss:Pattern="Solid"/></Style>'
+        '</Styles>'
+        + ''.join(worksheets) +
+        '</Workbook>'
+    )
 
-    response = HttpResponse(html_body, content_type='application/vnd.ms-excel; charset=utf-8')
+    response = HttpResponse('\ufeff' + xml_body, content_type='application/vnd.ms-excel; charset=utf-8')
     filename = f'attendance-{month_name}-{year}.xls'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
